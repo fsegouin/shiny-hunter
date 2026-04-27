@@ -3,6 +3,7 @@
 import { useCallback, useRef, useState } from 'react';
 import { decodeDVs, isShiny } from '@/lib/dv';
 import { findBySha1, sha1OfBytes, type GameConfig } from '@/lib/games';
+import { loadRomFromFile } from '@/lib/rom';
 import {
   init as initEmulator,
   type WasmBoyEmulator,
@@ -31,12 +32,19 @@ export default function SpikePage() {
     setLog((prev) => [...prev, { ts: Date.now(), level, text }]);
 
   const onRomChosen = useCallback(async (file: File) => {
-    const buf = new Uint8Array(await file.arrayBuffer());
-    const sha = await sha1OfBytes(buf);
-    setRomBytes(buf);
+    let load;
+    try {
+      load = await loadRomFromFile(file);
+    } catch (err) {
+      append('err', `could not read ROM: ${(err as Error).message}`);
+      return;
+    }
+    const sha = await sha1OfBytes(load.bytes);
+    setRomBytes(load.bytes);
     const cfg = findBySha1(sha) ?? null;
     setConfig(cfg);
-    append('info', `ROM: ${file.name} (${buf.byteLength.toLocaleString()} bytes)`);
+    const sourceTag = load.source === 'zip' ? ` (extracted from ${file.name})` : '';
+    append('info', `ROM: ${load.name}${sourceTag} (${load.bytes.byteLength.toLocaleString()} bytes)`);
     append(cfg ? 'ok' : 'err', `SHA-1: ${sha}${cfg ? ` → ${cfg.game}/${cfg.region}` : ' (unknown)'}`);
   }, []);
 
@@ -178,7 +186,10 @@ export default function SpikePage() {
       <div className="row">
         <input
           type="file"
-          accept=".gb,.gbc,.zip"
+          // No `accept=` filter: some OSes don't register a MIME for .gb,
+          // and the browser then greys out perfectly valid ROMs. We
+          // validate by content (SHA-1 + ZIP magic) inside loadRomFromFile,
+          // so accepting anything is safe.
           onChange={(e) => {
             const f = e.target.files?.[0];
             if (f) void onRomChosen(f);

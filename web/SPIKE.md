@@ -53,6 +53,15 @@ Fill this in after running the spike against a real ROM:
 - [ ] dumpSram returns 0x8000 bytes for Red/Blue
 - [ ] determinism check PASSES from the same state
 
+## ROM input
+
+The file picker accepts `.gb`, `.gbc`, and `.zip`. When the dropped file
+starts with the ZIP magic (`PK\x03\x04`), `src/lib/rom.ts` decompresses
+it via [`fflate`](https://github.com/101arrowz/fflate) and picks the
+largest `.gb` / `.gbc` entry inside. SHA-1 detection runs on the
+extracted bytes, so registry lookup works regardless of whether the
+user dropped a raw ROM or an archive.
+
 ## Known caveats so far
 
 - WasmBoy uses Web Workers internally; the host page must serve the
