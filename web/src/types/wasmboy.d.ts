@@ -61,8 +61,8 @@ declare module 'wasmboy' {
     getFPS(): number;
 
     _runWasmExport(name: 'executeFrame' | string, args: unknown[]): Promise<unknown>;
-    _getWasmMemorySection(start: number, end: number): Uint8Array;
-    _getWasmConstant(name: WasmConstantName): number;
+    _getWasmMemorySection(start: number, end: number): Promise<Uint8Array>;
+    _getWasmConstant(name: WasmConstantName): Promise<number>;
   };
 
   export default WasmBoy;

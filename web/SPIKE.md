@@ -43,15 +43,33 @@ The buttons on the page are designed to validate, in order:
 
 ## Findings
 
-Fill this in after running the spike against a real ROM:
+- [x] Init succeeds with `headless: true`
+- [x] tick benchmark: **31.2× realtime** on an iPhone 16e (Safari, headless)
+- [x] saveState: ~9 ms · loadState: ~20 ms (iPhone 16e)
+- [x] readBytes returns valid bytes from a known WRAM address
+- [ ] dumpSram returns the expected SRAM size — pending
+- [ ] determinism check — pending
 
-- [ ] Init succeeds with `headless: true`
-- [ ] tick benchmark: ___× realtime
-- [ ] saveState median latency: ___ ms
-- [ ] loadState median latency: ___ ms
-- [ ] readBytes returns expected non-zero values from a known WRAM addr
-- [ ] dumpSram returns 0x8000 bytes for Red/Blue
-- [ ] determinism check PASSES from the same state
+At 31× realtime headless and ~7s of emulated time per attempt
+(load_state + ~256 frames jitter + ~1s macro + 120 frames settle), wall
+time is ~225 ms / attempt → roughly **4 attempts/sec**, or **~30 min
+average per shiny** at 1/8192 odds. Mobile-viable.
+
+## Bugs found during the spike
+
+1. **`_getWasmMemorySection` and `_getWasmConstant` are async.** The
+   first version of the wrapper treated them as sync, so
+   `gbMemoryBase` was a `Promise<number>` and every `readBytes` call
+   produced an empty `Uint8Array` (which then crashed with "undefined
+   is not an object" when downstream code called `.toString` on a byte
+   that wasn't there). Fix: await both.
+2. **`saveState()` returns Uint8Array views into worker memory.**
+   Passing the same returned object to `loadState()` a second time
+   trips a "the object can not be cloned" `DOMException` because the
+   underlying buffers get transferred during the first call. Fix:
+   `cloneState()` (in `src/lib/state.ts`) deep-copies all four sections
+   into fresh `Uint8Array`s; the wrapper clones on save AND before each
+   load, so callers get a stable reference.
 
 ## ROM input
 
@@ -81,11 +99,21 @@ If all six checks pass, the next milestone is:
 
 1. Web Worker hosting the hunter loop (so the UI thread stays
    responsive).
-2. Macro replay using the `.events.json` format already produced by the
-   Python `record` command.
-3. Bootstrap state upload (user provides the `.state` from the Python
-   tool for v1; in-browser bootstrap comes later).
+2. ~~Macro replay using the `.events.json` format already produced by
+   the Python `record` command.~~ **Done in this commit** — see
+   section 3 of the spike page.
+3. Bootstrap state upload (user takes one in-browser via section 3 and
+   downloads as `.wbst`; in-browser play-to-checkpoint UX comes later).
 4. Live progress UI + `.sav` Blob download on shiny.
+
+### About `.wbst` vs PyBoy `.state`
+
+The downloadable `.wbst` is a **WasmBoy-specific** save state in a
+custom binary container (header + four sections, defined in
+`src/lib/state.ts`). It is **not** interchangeable with `.state` files
+produced by the Python `shiny-hunt bootstrap` command — PyBoy and
+WasmBoy don't share an internal layout. For the web app, take the
+checkpoint in-browser via section 3 and download it.
 
 ## Running the spike
 

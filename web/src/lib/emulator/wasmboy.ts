@@ -2,15 +2,29 @@
  * Thin wrapper around WasmBoy that gives the hunter loop the same
  * primitives the Python `Emulator` class provides:
  *   - load ROM
- *   - save / load state to/from bytes
+ *   - save / load state to/from a serializable object
  *   - tick N frames (headless / non-rendered)
  *   - read raw bytes at a Game Boy address
  *   - dump cartridge SRAM as a .sav
- *   - press/release a button by name
+ *   - press / release a button by name
  *
- * Everything client-side; this module must not be imported in server
- * components.
+ * Notes about WasmBoy 0.7.x worth keeping next to the wrapper:
+ *
+ *  - `_getWasmMemorySection` and `_getWasmConstant` are *async*
+ *    (postMessage to the internal worker). Treating them as sync makes
+ *    every memory read return an empty array. We resolve the GB memory
+ *    base once during init and await every read.
+ *
+ *  - `saveState()` returns Uint8Array views into worker-owned memory.
+ *    Passing the same object to `loadState()` twice trips a
+ *    "the object can not be cloned" DOMException because the buffers
+ *    get transferred during the first call. We deep-copy on save AND
+ *    again before each load.
+ *
+ * Everything is client-side; this module must not be imported in
+ * server components.
  */
+import { cloneState, type WasmBoySaveState } from '../state';
 
 const BUTTONS = ['A', 'B', 'START', 'SELECT', 'UP', 'DOWN', 'LEFT', 'RIGHT'] as const;
 export type Button = (typeof BUTTONS)[number];
@@ -22,12 +36,12 @@ export interface WasmBoyEmulator {
   /** Steps the emulator by `frames` frames without canvas updates. */
   tick(frames: number): Promise<void>;
   /** Reads `length` bytes from a Game Boy address (0x0000-0xFFFF). */
-  readBytes(addr: number, length: number): Uint8Array;
+  readBytes(addr: number, length: number): Promise<Uint8Array>;
   /** Convenience: a single byte. */
-  readByte(addr: number): number;
-  /** Returns a snapshot suitable for `loadState`; opaque to the caller. */
-  saveState(): Promise<unknown>;
-  loadState(state: unknown): Promise<void>;
+  readByte(addr: number): Promise<number>;
+  /** Returns a deep-copied snapshot suitable for `loadState`. */
+  saveState(): Promise<WasmBoySaveState>;
+  loadState(state: WasmBoySaveState): Promise<void>;
   /** Returns a copy of cartridge battery RAM (the .sav contents). */
   dumpSram(): Promise<Uint8Array>;
   pressButton(button: Button): void;
@@ -74,7 +88,6 @@ export async function init(opts: InitOptions): Promise<WasmBoyEmulator> {
   // race against `setJoypadState`.
   WasmBoy.disableDefaultJoypad();
 
-  // `loadROM` accepts a Uint8Array directly.
   await WasmBoy.loadROM(opts.rom);
 
   // `play()` starts the run-loop; we immediately pause so we can step
@@ -82,7 +95,8 @@ export async function init(opts: InitOptions): Promise<WasmBoyEmulator> {
   await WasmBoy.play();
   await WasmBoy.pause();
 
-  const gbMemoryBase = WasmBoy._getWasmConstant('GAMEBOY_INTERNAL_MEMORY_LOCATION') as number;
+  // Resolve the GB memory base once. Async — postMessage to the worker.
+  const gbMemoryBase = await WasmBoy._getWasmConstant('GAMEBOY_INTERNAL_MEMORY_LOCATION');
 
   // Persistent joypad state we mutate via press/release.
   const joypad: JoypadState = {
@@ -97,26 +111,33 @@ export async function init(opts: InitOptions): Promise<WasmBoyEmulator> {
     }
   };
 
-  const readBytes = (addr: number, length: number): Uint8Array => {
+  const readBytes = async (addr: number, length: number): Promise<Uint8Array> => {
     if (addr < 0 || addr + length > 0x10000) {
-      throw new RangeError(`addr+length out of GB memory range: 0x${addr.toString(16)}+${length}`);
+      throw new RangeError(
+        `addr+length out of GB memory range: 0x${addr.toString(16)}+${length}`,
+      );
     }
     const start = gbMemoryBase + addr;
-    const slice = WasmBoy._getWasmMemorySection(start, start + length) as Uint8Array;
-    // _getWasmMemorySection returns a *view* into WASM memory; copy so the
-    // caller's value doesn't shift under them when the emulator runs again.
+    const slice = await WasmBoy._getWasmMemorySection(start, start + length);
+    // Copy: the returned view aliases worker memory and may shift
+    // under the caller as soon as the emulator advances again.
     return new Uint8Array(slice);
   };
 
+  const saveState = async (): Promise<WasmBoySaveState> => {
+    const raw = await WasmBoy.saveState();
+    return cloneState(raw as WasmBoySaveState);
+  };
+
+  const loadState = async (state: WasmBoySaveState): Promise<void> => {
+    // Clone again so the caller's reference isn't disturbed by WasmBoy
+    // detaching/transferring buffers during the postMessage hop.
+    await WasmBoy.loadState(cloneState(state));
+  };
+
   const dumpSram = async (): Promise<Uint8Array> => {
-    const state = await WasmBoy.saveState();
-    // SaveState shape: { wasmBoyMemory: { cartridgeRam: Uint8Array, ... }, ... }
-    const cartRam = (state as { wasmBoyMemory?: { cartridgeRam?: Uint8Array } })
-      .wasmBoyMemory?.cartridgeRam;
-    if (!cartRam) {
-      throw new Error('saveState did not include cartridgeRam — wrong schema?');
-    }
-    return new Uint8Array(cartRam);
+    const state = await saveState();
+    return new Uint8Array(state.wasmBoyMemory.cartridgeRam);
   };
 
   const setButton = (button: Button, pressed: boolean) => {
@@ -129,9 +150,9 @@ export async function init(opts: InitOptions): Promise<WasmBoyEmulator> {
     isReady: () => WasmBoy.isReady(),
     tick,
     readBytes,
-    readByte: (addr) => readBytes(addr, 1)[0],
-    saveState: () => WasmBoy.saveState(),
-    loadState: (state) => WasmBoy.loadState(state as Parameters<typeof WasmBoy.loadState>[0]),
+    readByte: async (addr) => (await readBytes(addr, 1))[0],
+    saveState,
+    loadState,
     dumpSram,
     pressButton: (b) => setButton(b, true),
     releaseButton: (b) => setButton(b, false),

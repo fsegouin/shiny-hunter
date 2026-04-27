@@ -4,10 +4,22 @@ import { useCallback, useRef, useState } from 'react';
 import { decodeDVs, isShiny } from '@/lib/dv';
 import { findBySha1, sha1OfBytes, type GameConfig } from '@/lib/games';
 import { loadRomFromFile } from '@/lib/rom';
+import { parseEventMacro, replayMacro, type EventMacro } from '@/lib/macro';
+import { deserializeState, serializeState, type WasmBoySaveState } from '@/lib/state';
 import {
   init as initEmulator,
   type WasmBoyEmulator,
 } from '@/lib/emulator/wasmboy';
+
+function downloadBlob(filename: string, bytes: Uint8Array, mime = 'application/octet-stream') {
+  const blob = new Blob([bytes as BlobPart], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
 
 interface LogLine {
   ts: number;
@@ -26,7 +38,9 @@ export default function SpikePage() {
   const [romBytes, setRomBytes] = useState<Uint8Array | null>(null);
   const [emu, setEmu] = useState<WasmBoyEmulator | null>(null);
   const [running, setRunning] = useState(false);
-  const checkpointRef = useRef<unknown>(null);
+  const [macro, setMacro] = useState<EventMacro | null>(null);
+  const [hasCheckpoint, setHasCheckpoint] = useState(false);
+  const checkpointRef = useRef<WasmBoySaveState | null>(null);
 
   const append = (level: LogLine['level'], text: string) =>
     setLog((prev) => [...prev, { ts: Date.now(), level, text }]);
@@ -89,9 +103,10 @@ export default function SpikePage() {
     setRunning(true);
     try {
       const t0 = performance.now();
-      const state = await emu.saveState();
+      const state = (await emu.saveState()) as WasmBoySaveState;
       const t1 = performance.now();
       checkpointRef.current = state;
+      setHasCheckpoint(true);
       append('ok', `saveState in ${(t1 - t0).toFixed(2)} ms`);
       const t2 = performance.now();
       await emu.loadState(state);
@@ -104,14 +119,78 @@ export default function SpikePage() {
     }
   }, [emu]);
 
+  const downloadCheckpoint = useCallback(() => {
+    if (!checkpointRef.current) return append('err', 'take a save state first');
+    const bytes = serializeState(checkpointRef.current);
+    const tag = config ? `${config.game}_${config.region}` : 'wasmboy';
+    downloadBlob(`${tag}_${Date.now()}.wbst`, bytes);
+    append('ok', `downloaded ${bytes.byteLength.toLocaleString()} bytes (.wbst)`);
+  }, [config]);
+
+  const onCheckpointFile = useCallback(async (file: File) => {
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const state = deserializeState(bytes);
+      checkpointRef.current = state;
+      setHasCheckpoint(true);
+      append('ok', `loaded checkpoint from ${file.name} (${bytes.byteLength.toLocaleString()} bytes)`);
+    } catch (err) {
+      append('err', `could not load checkpoint: ${(err as Error).message}`);
+    }
+  }, []);
+
+  const onMacroFile = useCallback(async (file: File) => {
+    try {
+      const text = await file.text();
+      const m = parseEventMacro(JSON.parse(text));
+      setMacro(m);
+      append('ok',
+        `loaded macro: ${m.events.length} events over ${m.totalFrames} frames` +
+        (m.romSha1 ? ` · rom_sha1=${m.romSha1.slice(0, 12)}…` : ''),
+      );
+    } catch (err) {
+      append('err', `could not parse macro: ${(err as Error).message}`);
+    }
+  }, []);
+
+  const stepReplayMacro = useCallback(async () => {
+    if (!emu) return append('err', 'init the emulator first');
+    if (!checkpointRef.current) return append('err', 'no checkpoint loaded — take or upload one');
+    if (!macro) return append('err', 'no macro loaded — upload a .events.json');
+    if (!config) return append('err', 'unknown ROM — no DV addr to read');
+    setRunning(true);
+    try {
+      const t0 = performance.now();
+      await emu.loadState(checkpointRef.current);
+      emu.clearJoypad();
+      await replayMacro(emu, macro);
+      const dt = performance.now() - t0;
+
+      const species = await emu.readByte(config.partySpeciesAddr);
+      const speciesName = config.starters[species] ?? `unknown(0x${species.toString(16).padStart(2, '0')})`;
+      const dvBytes = await emu.readBytes(config.partyDvAddr, 2);
+      const dvs = decodeDVs(dvBytes[0], dvBytes[1]);
+      const shiny = isShiny(dvs);
+      append(
+        shiny ? 'ok' : 'info',
+        `replay: ${dt.toFixed(1)} ms · species=${speciesName} ` +
+        `dvs=${JSON.stringify(dvs)}${shiny ? ' ★ SHINY' : ''}`,
+      );
+    } catch (err) {
+      append('err', `replay failed: ${(err as Error).message}`);
+    } finally {
+      setRunning(false);
+    }
+  }, [emu, macro, config]);
+
   const stepReadDvAddr = useCallback(async () => {
     if (!emu) return append('err', 'init the emulator first');
     if (!config) return append('err', 'unknown ROM — no DV addr to read');
     setRunning(true);
     try {
-      const bytes = emu.readBytes(config.partyDvAddr, 2);
+      const bytes = await emu.readBytes(config.partyDvAddr, 2);
       const dvs = decodeDVs(bytes[0], bytes[1]);
-      const species = emu.readByte(config.partySpeciesAddr);
+      const species = await emu.readByte(config.partySpeciesAddr);
       append(
         'info',
         `species=0x${species.toString(16).padStart(2, '0')} ` +
@@ -157,7 +236,7 @@ export default function SpikePage() {
       // bytes at partyDvAddr should match. Confirms PyBoy-style determinism.
       const ADV = 200;
       const runFromState = async () => {
-        await emu.loadState(checkpointRef.current);
+        await emu.loadState(checkpointRef.current!);
         await emu.tick(ADV);
         return emu.readBytes(config.partyDvAddr, 2);
       };
@@ -221,6 +300,51 @@ export default function SpikePage() {
         </button>
         <button disabled={!emu || running} onClick={stepDeterminism}>
           determinism check
+        </button>
+      </div>
+
+      <h2>3. Macro replay (load state → replay → read DVs)</h2>
+      <p className="muted">
+        Take or upload a checkpoint, upload a `.events.json` recorded by the
+        Python `shiny-hunt record` command, then replay. The DVs after
+        replay land in the party at the configured address — that's what
+        the hunter loop will read on every attempt.
+      </p>
+      <div className="row">
+        <label>checkpoint:</label>
+        <input
+          type="file"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) void onCheckpointFile(f);
+          }}
+        />
+        <button disabled={!hasCheckpoint || running} onClick={downloadCheckpoint}>
+          download current checkpoint (.wbst)
+        </button>
+      </div>
+      <div className="row">
+        <label>macro:</label>
+        <input
+          type="file"
+          accept=".json,application/json"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) void onMacroFile(f);
+          }}
+        />
+        {macro && (
+          <span className="ok">
+            {macro.events.length} events · {macro.totalFrames} frames
+          </span>
+        )}
+      </div>
+      <div className="row">
+        <button
+          disabled={!emu || !hasCheckpoint || !macro || !config || running}
+          onClick={stepReplayMacro}
+        >
+          load state + replay macro + read DVs
         </button>
       </div>
 
