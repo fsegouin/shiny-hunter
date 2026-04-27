@@ -30,6 +30,91 @@ The hunter loop:
    sidecar so the run can be replayed exactly.
 5. Otherwise, loop.
 
+## How the RNG works (Gen 1) and why frame jitter matters
+
+Gen 1's RNG state is two HRAM bytes, `hRandomAdd` and `hRandomSub`. They
+are perturbed by the Game Boy's hardware divider register `rDIV` at
+`$FF04`, which auto-increments at **16384 Hz** (once every 256 CPU
+cycles) and is impossible for game code to pause. The `Random` routine
+(verbatim from [`pret/pokered`](https://github.com/pret/pokered/blob/master/engine/math/random.asm)):
+
+```asm
+Random_::
+    ldh a, [rDIV]
+    ld  b, a
+    ldh a, [hRandomAdd]
+    adc b
+    ldh [hRandomAdd], a
+    ldh a, [rDIV]
+    ld  b, a
+    ldh a, [hRandomSub]
+    sbc b
+    ldh [hRandomSub], a
+    ret
+```
+
+Each call mixes the *current* `rDIV` value into both running totals. The
+public `Random` wrapper returns `hRandomAdd` to the caller. Because
+`rDIV` advances on its own real-time clock, two calls separated by a
+slightly different number of CPU cycles will read different `rDIV`
+values and produce different results.
+
+### How DVs are rolled
+
+When you accept a starter from Oak, the game eventually runs `AddPartyMon`,
+which calls `Random` **twice** to fill the two DV bytes (see
+[`engine/pokemon/add_mon.asm`](https://github.com/pret/pokered/blob/master/engine/pokemon/add_mon.asm)):
+
+```asm
+call Random            ; 1st call -> spd/spc byte (high nybble = Spd, low = Spc)
+ld   b, a
+call Random            ; 2nd call -> atk/def byte (high nybble = Atk, low = Def)
+...
+ld   [hli], a          ; store atk/def at wPartyMon1DVs + 0
+ld   [hl],  b          ;                spd/spc at wPartyMon1DVs + 1
+```
+
+So the four DV nybbles (Atk, Def, Spd, Spc) come from two consecutive
+`Random` calls, both of which depend on `rDIV` at the moment they
+execute. HP DV is derived from the LSBs of the other four — it isn't
+rolled separately.
+
+### Why frame jitter changes the outcome
+
+PyBoy is fully deterministic: same ROM + same starting save-state +
+same input sequence ⇒ bit-identical output. That includes `rDIV`. So
+without jitter, every soft-reset would re-roll the same DVs forever.
+
+The hunter loop gets variation by inserting `pyboy.tick(delay)` between
+`load_state(...)` and the A-press macro, where `delay ∈ [0, 256)` comes
+from a seeded `random.Random`. Each emulated frame is 70224 CPU cycles,
+during which `rDIV` increments ~274 times. Different `delay` values
+mean `Random` runs with a different `rDIV` at the precise instant of
+each call — which in turn shifts `hRandomAdd`/`hRandomSub` and,
+ultimately, the two DV bytes. Empirically a few hundred frames of
+jitter range covers the full DV space.
+
+This is exactly the same physical phenomenon that makes manual
+soft-resetting work on real hardware: a human can't press A on the same
+CPU cycle twice, so `rDIV` is different at each press. We just simulate
+that variability on purpose.
+
+### Is Gen 2 RNG the same?
+
+For *our* use case, **Gen 2's RNG is never invoked**. We're not catching
+the Pokémon in Gen 2 — we're catching it in Gen 1 and transferring via
+the Time Capsule. Shininess in Gen 2 is checked as a **static predicate
+over the existing DVs**: Def/Spd/Spc DV all equal 10, Atk DV is in
+`{2, 3, 6, 7, 10, 11, 14, 15}`. No roll happens at transfer time.
+
+For native Gen 2 hunting (e.g., shiny hunting Totodile in Crystal),
+Gold/Silver/Crystal use a very similar mechanism: an `hRandomAdd`
+/`hRandomSub` pair mixed with `rDIV` on every call. It's the same
+fundamental design, with minor differences in mixing constants and in
+*where* the RNG is consulted during encounter generation. So if we
+later extend this tool to hunt natively in Gen 2, the same "inject
+frame jitter before the decisive A-press" trick applies.
+
 ## Install
 
 ```bash
