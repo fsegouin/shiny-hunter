@@ -9,7 +9,7 @@ from rich.console import Console
 from rich.table import Table
 
 from . import config as cfg_mod
-from . import hunter, trace
+from . import hunter, recorder, trace
 from .config import GameConfig
 from .emulator import Emulator
 from .progress import live_progress
@@ -62,10 +62,27 @@ def list_games() -> None:
 
 
 @main.command()
-@click.option("--rom", required=True, type=click.Path(exists=True, dir_okay=False, path_type=Path))
-@click.option("--starter", required=True, help="Which starter the bootstrap state is parked at.")
-@click.option("--game", default=None)
-@click.option("--region", default=None)
+@click.option(
+    "--rom",
+    required=True,
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="Path to the Game Boy ROM (.gb). Region is auto-detected from the SHA-1.",
+)
+@click.option(
+    "--starter",
+    required=True,
+    help="Which starter the bootstrap state is parked at (e.g. bulbasaur, charmander, squirtle, pikachu).",
+)
+@click.option(
+    "--game",
+    default=None,
+    help="Force a game name (red|blue|green|yellow). Only needed when ROM SHA-1 lookup fails.",
+)
+@click.option(
+    "--region",
+    default=None,
+    help="Force a region (us|jp|eu|de|fr|it|es). Only needed alongside --game.",
+)
 def bootstrap(rom: Path, starter: str, game: str | None, region: str | None) -> None:
     """Open a windowed PyBoy. Play to the 'YES' prompt; close the window to save the state."""
     cfg = _resolve_config(rom, game, region)
@@ -91,10 +108,19 @@ def bootstrap(rom: Path, starter: str, game: str | None, region: str | None) -> 
 
 
 @main.command()
-@click.option("--rom", required=True, type=click.Path(exists=True, dir_okay=False, path_type=Path))
-@click.option("--starter", required=True)
-@click.option("--game", default=None)
-@click.option("--region", default=None)
+@click.option(
+    "--rom",
+    required=True,
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="Path to the Game Boy ROM (.gb).",
+)
+@click.option(
+    "--starter",
+    required=True,
+    help="Which bootstrap save-state to load (e.g. bulbasaur).",
+)
+@click.option("--game", default=None, help="Force game name; only needed if SHA-1 lookup fails.")
+@click.option("--region", default=None, help="Force region; only needed alongside --game.")
 def verify(rom: Path, starter: str, game: str | None, region: str | None) -> None:
     """Run one attempt against the bootstrap state and print species + DVs."""
     cfg = _resolve_config(rom, game, region)
@@ -119,15 +145,46 @@ def verify(rom: Path, starter: str, game: str | None, region: str | None) -> Non
 
 
 @main.command()
-@click.option("--rom", required=True, type=click.Path(exists=True, dir_okay=False, path_type=Path))
-@click.option("--starter", required=True)
-@click.option("--game", default=None)
-@click.option("--region", default=None)
-@click.option("--max-attempts", type=int, default=100_000, show_default=True)
+@click.option(
+    "--rom",
+    required=True,
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="Path to the Game Boy ROM (.gb).",
+)
+@click.option(
+    "--starter",
+    required=True,
+    help="Starter to hunt for; must match a name in this game's registry (e.g. bulbasaur).",
+)
+@click.option("--game", default=None, help="Force game name; only needed if SHA-1 lookup fails.")
+@click.option("--region", default=None, help="Force region; only needed alongside --game.")
+@click.option(
+    "--max-attempts",
+    type=int,
+    default=100_000,
+    show_default=True,
+    help="Hard upper bound on resets before the hunt aborts.",
+)
 @click.option("--seed", type=int, default=None, help="Master RNG seed; default uses time_ns().")
-@click.option("--out", "out_dir", type=click.Path(file_okay=False, path_type=Path), default=Path("shinies"))
-@click.option("--headless/--window", default=True)
-@click.option("--continue-after-shiny", is_flag=True)
+@click.option(
+    "--out",
+    "out_dir",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=Path("shinies"),
+    show_default=True,
+    help="Directory where .sav and .trace.json files are written when a shiny is found.",
+)
+@click.option(
+    "--headless/--window",
+    default=True,
+    show_default=True,
+    help="Run without a visible PyBoy window (fastest), or show one for debugging.",
+)
+@click.option(
+    "--continue-after-shiny",
+    is_flag=True,
+    help="Keep hunting after the first shiny is found (default: stop).",
+)
 def run(
     rom: Path,
     starter: str,
@@ -181,8 +238,19 @@ def run(
 
 
 @main.command()
-@click.option("--trace", "trace_path", required=True, type=click.Path(exists=True, dir_okay=False, path_type=Path))
-@click.option("--rom", required=True, type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.option(
+    "--trace",
+    "trace_path",
+    required=True,
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="Path to the .trace.json sidecar written when the shiny was found.",
+)
+@click.option(
+    "--rom",
+    required=True,
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="Same ROM that produced the trace; SHA-1 is verified against the trace.",
+)
 def replay(trace_path: Path, rom: Path) -> None:
     """Reproduce the (species, DVs) of a previously found shiny from its trace."""
     tr = trace.load(trace_path)
@@ -220,6 +288,78 @@ def replay(trace_path: Path, rom: Path) -> None:
     if not match:
         raise click.ClickException("replay mismatch — emulator state is not deterministic w.r.t. trace")
     click.echo("OK: replay matches trace")
+
+
+@main.command()
+@click.option(
+    "--rom",
+    required=True,
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="Path to the Game Boy ROM (.gb).",
+)
+@click.option(
+    "--from-state",
+    "from_state",
+    required=True,
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="PyBoy save-state to load before recording (typically a bootstrap state).",
+)
+@click.option(
+    "--out",
+    "out_path",
+    required=True,
+    type=click.Path(dir_okay=False, path_type=Path),
+    help="Where to write the recorded event-log JSON (typical: macros/<name>.events.json).",
+)
+@click.option(
+    "--max-frames",
+    type=int,
+    default=None,
+    help="Hard cap on recorded frames; default is unlimited (until you close the window).",
+)
+@click.option("--game", default=None, help="Force game name; only needed if SHA-1 lookup fails.")
+@click.option("--region", default=None, help="Force region; only needed alongside --game.")
+def record(
+    rom: Path,
+    from_state: Path,
+    out_path: Path,
+    max_frames: int | None,
+    game: str | None,
+    region: str | None,
+) -> None:
+    """Record a frame-indexed input macro by playing in a PyBoy window.
+
+    Loads --from-state, opens a window, and logs every press/release with
+    its frame index. Close the window when you're done; the JSON is
+    written to --out and replays deterministically against the same
+    starting state.
+    """
+    cfg = _resolve_config(rom, game, region)
+    rom_sha = sha1_of_file(rom)
+
+    click.echo(f"Recording on {cfg.game}/{cfg.region}; close the PyBoy window to stop.")
+    click.echo(f"  rom        = {rom}")
+    click.echo(f"  from_state = {from_state}")
+    click.echo(f"  out        = {out_path}")
+
+    emu = Emulator(rom, headless=False)
+    try:
+        emu.load_state(from_state)
+        macro = recorder.record(
+            emu,
+            name=out_path.name,
+            rom_sha1=rom_sha,
+            from_state=str(from_state),
+            max_frames=max_frames,
+        )
+    finally:
+        emu.stop(save=False)
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    recorder.write(macro, out_path)
+    click.echo(
+        f"wrote {out_path}: {len(macro.events)} events over {macro.total_frames} frames"
+    )
 
 
 if __name__ == "__main__":

@@ -84,3 +84,136 @@ def test_run_pushes_button_then_idles():
         ("tick", 30),
         ("tick", 60),
     ]
+
+
+# ---------- EventMacro (JSON event-log format) ----------
+
+
+class _FakeEventPyBoy:
+    def __init__(self):
+        self.events: list = []
+
+    def tick(self, count=1, render=False):
+        self.events.append(("tick", count))
+        return True
+
+    def button(self, key, delay):
+        self.events.append(("button", key, delay))
+
+    def button_press(self, key):
+        self.events.append(("press", key))
+
+    def button_release(self, key):
+        self.events.append(("release", key))
+
+
+def test_parse_events_minimal():
+    em = macro.parse_events({
+        "events": [
+            {"frame": 10, "press": "a"},
+            {"frame": 12, "release": "a"},
+        ],
+        "total_frames": 100,
+    })
+    assert len(em.events) == 2
+    assert em.events[0].kind == "press" and em.events[0].button == "a"
+    assert em.events[1].kind == "release" and em.events[0].frame == 10
+    assert em.total_frames == 100
+
+
+def test_parse_events_rejects_both_press_and_release():
+    with pytest.raises(ValueError, match="both 'press' and 'release'"):
+        macro.parse_events({"events": [{"frame": 0, "press": "a", "release": "a"}]})
+
+
+def test_parse_events_rejects_unknown_button():
+    with pytest.raises(ValueError, match="unknown button"):
+        macro.parse_events({"events": [{"frame": 0, "press": "x"}]})
+
+
+def test_parse_events_rejects_negative_frame():
+    with pytest.raises(ValueError, match="frame must be >= 0"):
+        macro.parse_events({"events": [{"frame": -1, "press": "a"}]})
+
+
+def test_parse_events_total_frames_default_to_last():
+    em = macro.parse_events({"events": [{"frame": 42, "press": "a"}]})
+    assert em.total_frames == 42
+
+
+def test_parse_events_total_frames_must_be_at_least_last():
+    with pytest.raises(ValueError, match="total_frames"):
+        macro.parse_events({
+            "events": [{"frame": 50, "press": "a"}],
+            "total_frames": 10,
+        })
+
+
+def test_event_macro_run_ticks_to_each_frame():
+    em = macro.parse_events({
+        "events": [
+            {"frame": 10, "press": "a"},
+            {"frame": 12, "release": "a"},
+            {"frame": 50, "press": "b"},
+            {"frame": 52, "release": "b"},
+        ],
+        "total_frames": 100,
+    })
+    fake = _FakeEventPyBoy()
+    em.run(fake)
+    assert fake.events == [
+        ("tick", 10),
+        ("press", "a"),
+        ("tick", 2),
+        ("release", "a"),
+        ("tick", 38),
+        ("press", "b"),
+        ("tick", 2),
+        ("release", "b"),
+        ("tick", 48),
+    ]
+
+
+def test_event_macro_run_rejects_decreasing_frames():
+    em = macro.EventMacro(
+        name="x",
+        events=(macro.Event(10, "press", "a"), macro.Event(5, "release", "a")),
+        total_frames=10,
+    )
+    fake = _FakeEventPyBoy()
+    with pytest.raises(ValueError, match="non-decreasing"):
+        em.run(fake)
+
+
+def test_load_dispatches_by_extension(tmp_path: Path):
+    yp = tmp_path / "m.yaml"
+    yp.write_text(yaml.safe_dump([{"button": "a"}]))
+    jp = tmp_path / "m.json"
+    jp.write_text('{"events": [{"frame": 0, "press": "a"}], "total_frames": 1}')
+    assert isinstance(macro.load(yp), macro.Macro)
+    assert isinstance(macro.load(jp), macro.EventMacro)
+
+
+def test_load_rejects_unknown_extension(tmp_path: Path):
+    p = tmp_path / "m.txt"
+    p.write_text("nope")
+    with pytest.raises(ValueError, match="unknown macro extension"):
+        macro.load(p)
+
+
+def test_dump_events_round_trips():
+    src = macro.parse_events({
+        "events": [
+            {"frame": 1, "press": "start"},
+            {"frame": 3, "release": "start"},
+        ],
+        "total_frames": 10,
+        "rom_sha1": "deadbeef",
+        "from_state": "states/red_us_bulbasaur.state",
+    })
+    doc = macro.dump_events(src)
+    out = macro.parse_events(doc)
+    assert out.events == src.events
+    assert out.total_frames == src.total_frames
+    assert out.rom_sha1 == "deadbeef"
+    assert out.from_state == "states/red_us_bulbasaur.state"

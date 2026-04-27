@@ -60,12 +60,22 @@ shiny-hunt bootstrap --rom roms/red.gb --starter bulbasaur
 # (PyBoy window opens. Play to the "Do you want this Pokémon?" YES prompt.
 #  Close the window — the state is saved to states/red_us_bulbasaur.state.)
 
-# 2. Sanity-check that the macro lands in a party-formed state.
-shiny-hunt verify --rom roms/red.gb --starter bulbasaur
-# Prints species + DVs. If species is 0 or unknown, increase the final
-# `after` in src/shiny_hunter/macros/red_us_starter.yaml.
+# 2. (Optional) Replace the hand-tuned YAML macro with a recorded one.
+shiny-hunt record \
+  --rom roms/red.gb \
+  --from-state states/red_us_bulbasaur.state \
+  --out src/shiny_hunter/macros/red_us_starter.events.json
+# (PyBoy window opens with the bootstrap state already loaded. Press the
+#  buttons to confirm the starter and advance dialog through party-add.
+#  Close the window to write the JSON. Then point the GameConfig's
+#  starter_macro at the .events.json filename instead of the .yaml.)
 
-# 3. Hunt.
+# 3. Sanity-check that the macro lands in a party-formed state.
+shiny-hunt verify --rom roms/red.gb --starter bulbasaur
+# Prints species + DVs. If species is 0 or unknown, your macro stopped
+# too early — re-record (or extend the YAML's final `after`).
+
+# 4. Hunt.
 shiny-hunt run --rom roms/red.gb --starter bulbasaur --headless
 # When a shiny is found, writes:
 #   shinies/bulbasaur_us_<NNNNNN>.sav        — battery save (Time-Capsule-able)
@@ -88,16 +98,17 @@ shiny-hunt replay --rom roms/red.gb --trace shinies/bulbasaur_us_000042.trace.js
 
 ```
 src/shiny_hunter/
-  cli.py             entry point (run | bootstrap | verify | replay | list-games)
+  cli.py             entry point (run | bootstrap | verify | replay | record | list-games)
   hunter.py          main reset loop + replay
   emulator.py        PyBoy 2.x wrapper (banked SRAM dump, save/load state from bytes)
+  recorder.py        windowed-mode joypad polling -> event-log macro
   dv.py              decode_dvs(), is_shiny()  — pure
-  macro.py           YAML-defined input macros
+  macro.py           YAML step macros + JSON event-log macros
   config.py          GameConfig + ROM-hash registry
   trace.py           per-attempt JSON traces
   progress.py        rich Live counter
   games/             per-(game, region) configs (red_us, red_jp, blue_us, ...)
-  macros/            per-(game, region) starter + save macros
+  macros/            per-(game, region) starter + save macros (.yaml or .events.json)
 ```
 
 ## Caveats

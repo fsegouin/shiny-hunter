@@ -36,6 +36,15 @@ class Emulator:
     def button(self, key: str, hold_frames: int = 2) -> None:
         self._pyboy.button(key, hold_frames)
 
+    def button_press(self, key: str) -> None:
+        self._pyboy.button_press(key)
+
+    def button_release(self, key: str) -> None:
+        self._pyboy.button_release(key)
+
+    def button_is_pressed(self, key: str) -> bool:
+        return bool(self._pyboy.button_is_pressed(key))
+
     # ---- memory ----
 
     def read_byte(self, addr: int) -> int:

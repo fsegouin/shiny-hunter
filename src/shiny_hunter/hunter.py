@@ -119,7 +119,7 @@ def _persist_shiny(
     delay: int,
     species: int,
     dvs: DVs,
-    save_macro: macro.Macro,
+    save_macro: macro.Macro | macro.EventMacro,
 ) -> None:
     """On shiny: trigger an in-game SAVE, then dump SRAM and write trace."""
     species_name = cfg.starters.get(species, f"species_0x{species:02X}")
