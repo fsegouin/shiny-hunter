@@ -186,7 +186,10 @@ export default function SpikePage() {
       <div className="row">
         <input
           type="file"
-          accept=".gb,.gbc,.zip"
+          // No `accept=` filter: some OSes don't register a MIME for .gb,
+          // and the browser then greys out perfectly valid ROMs. We
+          // validate by content (SHA-1 + ZIP magic) inside loadRomFromFile,
+          // so accepting anything is safe.
           onChange={(e) => {
             const f = e.target.files?.[0];
             if (f) void onRomChosen(f);
