@@ -1,0 +1,14 @@
+# Pokémon Red/Blue (US) — receive-starter macro.
+#
+# Precondition (set by the bootstrap save-state): cursor parked on "YES" of
+# the "Do you want this Pokémon?" prompt. The injected `tick(delay)` runs
+# *before* this macro, so this is purely the deterministic confirm + dialog
+# advance through "Player received <MON>!" + cry until the party is formed.
+#
+# Tune empirically: run `shiny-hunt verify` and increase `after` on the last
+# step if `party_species_addr` reads 0 (party not yet populated).
+
+- {button: a, hold: 2, after: 60}    # confirm "YES" -> dialog opens
+- {button: a, hold: 2, after: 60}    # advance "<PLAYER> received <MON>!"
+- {button: a, hold: 2, after: 60}    # advance trailing dialog
+- {button: a, hold: 2, after: 600}   # cry + party-add settle

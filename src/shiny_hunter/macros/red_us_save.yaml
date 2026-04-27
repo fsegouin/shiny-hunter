@@ -1,0 +1,17 @@
+# Pokémon Red/Blue (US) — in-game SAVE macro.
+#
+# Run *only* when a shiny is found, after the receive-starter macro. Commits
+# the new party member to SRAM so the .sav we dump contains the starter.
+# Precondition: standing on the overworld in Oak's Lab, no menu open.
+
+- {button: start, hold: 2, after: 90}    # open Start menu
+# Cursor starts at top (POKéDEX). After receiving starter the menu order is:
+# POKéDEX, POKéMON, ITEM, PLAYER, SAVE, OPTION, EXIT — SAVE is the 5th entry.
+- {button: down, hold: 2, after: 6}
+- {button: down, hold: 2, after: 6}
+- {button: down, hold: 2, after: 6}
+- {button: down, hold: 2, after: 6}      # cursor on SAVE
+- {button: a,    hold: 2, after: 60}     # open save prompt
+- {button: a,    hold: 2, after: 300}    # confirm "YES" + "Now saving..." + ack
+- {button: a,    hold: 2, after: 120}    # advance final ack
+- {button: b,    hold: 2, after: 60}     # close any residual menu

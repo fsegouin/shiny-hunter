@@ -1,0 +1,12 @@
+# Pokémon Red/Green/Blue (JP) — in-game SAVE macro.
+# Menu layout matches US; durations tuned for JP text speed.
+
+- {button: start, hold: 2, after: 60}
+- {button: down, hold: 2, after: 6}
+- {button: down, hold: 2, after: 6}
+- {button: down, hold: 2, after: 6}
+- {button: down, hold: 2, after: 6}
+- {button: a,    hold: 2, after: 40}
+- {button: a,    hold: 2, after: 240}
+- {button: a,    hold: 2, after: 90}
+- {button: b,    hold: 2, after: 40}

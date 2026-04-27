@@ -1,0 +1,4 @@
+- {button: a, hold: 2, after: 30}
+- {button: a, hold: 2, after: 40}
+- {button: a, hold: 2, after: 40}
+- {button: a, hold: 2, after: 480}

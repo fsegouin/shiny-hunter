@@ -1,0 +1,12 @@
+# Pokémon Yellow (US) — in-game SAVE macro.
+# Same start-menu layout as Red/Blue.
+
+- {button: start, hold: 2, after: 90}
+- {button: down, hold: 2, after: 6}
+- {button: down, hold: 2, after: 6}
+- {button: down, hold: 2, after: 6}
+- {button: down, hold: 2, after: 6}
+- {button: a,    hold: 2, after: 60}
+- {button: a,    hold: 2, after: 300}
+- {button: a,    hold: 2, after: 120}
+- {button: b,    hold: 2, after: 60}

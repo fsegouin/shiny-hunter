@@ -1,0 +1,10 @@
+# Pokémon Yellow (US) — receive-starter macro.
+#
+# Yellow's intro hands you Pikachu directly (no choice). Bootstrap save-state
+# should be parked just before the dialog finishes giving Pikachu — i.e.,
+# right before the A-press that triggers `AddPartyMon`.
+
+- {button: a, hold: 2, after: 60}
+- {button: a, hold: 2, after: 60}
+- {button: a, hold: 2, after: 60}
+- {button: a, hold: 2, after: 600}   # cry + party-add settle

@@ -1,0 +1,7 @@
+# Pokémon Red/Green/Blue (JP) — receive-starter macro.
+# JP kana text scrolls faster than US English; `after` durations are shorter.
+
+- {button: a, hold: 2, after: 30}
+- {button: a, hold: 2, after: 40}
+- {button: a, hold: 2, after: 40}
+- {button: a, hold: 2, after: 480}

@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+build/
+dist/
+.venv/
+venv/
+
+# User-supplied / generated runtime artifacts (keep dirs, ignore contents)
+roms/*
+states/*
+shinies/*
+!roms/.gitkeep
+!states/.gitkeep
+!shinies/.gitkeep
+*.gb
+*.gbc
+*.sav
+*.state
+
+# IDE
+.idea/
+.vscode/
