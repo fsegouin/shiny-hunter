@@ -364,20 +364,31 @@ export default function SpikePage() {
           checkpoint here (pause + download .wbst)
         </button>
       </div>
-      <canvas
-        ref={canvasRef}
-        width={160}
-        height={144}
+      <div
         style={{
+          position: 'relative',
           display: mode === 'windowed' ? 'block' : 'none',
-          width: 320, height: 288,
-          imageRendering: 'pixelated',
+          width: '100%',
+          maxWidth: 720,
+          aspectRatio: '160 / 144',
           background: '#000',
-          margin: '12px 0',
           border: '1px solid #333',
+          margin: '12px auto',
         }}
-      />
-      {mode === 'windowed' && emu && <Gamepad emu={emu} />}
+      >
+        <canvas
+          ref={canvasRef}
+          width={160}
+          height={144}
+          style={{
+            display: 'block',
+            width: '100%',
+            height: '100%',
+            imageRendering: 'pixelated',
+          }}
+        />
+        {mode === 'windowed' && emu && <Gamepad emu={emu} />}
+      </div>
 
       <h2>3. Steps</h2>
       <div className="row">

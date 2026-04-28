@@ -55,12 +55,18 @@ export function Gamepad({ emu }: { emu: WasmBoyEmulator }) {
   }, [emu]);
 
   return (
-    <div className="gp-overlay">
-      <div ref={dpadRef} className="gp-dpad" aria-label="D-pad" />
-      <button ref={bRef} className="gp-btn gp-btn-b" aria-label="B">B</button>
-      <button ref={aRef} className="gp-btn gp-btn-a" aria-label="A">A</button>
-      <button ref={selectRef} className="gp-btn gp-btn-select" aria-label="Select">SELECT</button>
-      <button ref={startRef} className="gp-btn gp-btn-start" aria-label="Start">START</button>
+    <div className="gp">
+      <div className="gp-dpad-wrap">
+        <div ref={dpadRef} className="gp-dpad" aria-label="D-pad" />
+      </div>
+      <div className="gp-ab">
+        <button ref={bRef} className="gp-btn gp-btn-b" aria-label="B">B</button>
+        <button ref={aRef} className="gp-btn gp-btn-a" aria-label="A">A</button>
+      </div>
+      <div className="gp-meta">
+        <button ref={selectRef} className="gp-btn gp-btn-select" aria-label="Select">SELECT</button>
+        <button ref={startRef} className="gp-btn gp-btn-start" aria-label="Start">START</button>
+      </div>
     </div>
   );
 }
