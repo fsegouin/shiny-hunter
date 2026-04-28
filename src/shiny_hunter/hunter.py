@@ -1,7 +1,6 @@
 """Main shiny-hunting loop: load state -> jitter -> A-press -> read DVs -> repeat."""
 from __future__ import annotations
 
-import io
 import random
 import time
 from dataclasses import dataclass
@@ -11,8 +10,9 @@ from typing import Callable
 
 from . import macro, pokemon, trace
 from .config import GameConfig
-from .dv import DVs, decode_dvs, is_shiny
+from .dv import DVs, is_shiny
 from .emulator import Emulator
+from .polling import run_until_species
 
 JITTER_RANGE = 256  # ≈4 s of frames
 
@@ -26,11 +26,6 @@ class HuntResult:
 
 def _macro_path(filename: str) -> Path:
     return Path(str(resources.files("shiny_hunter").joinpath("macros", filename)))
-
-
-def _read_dvs(emu: Emulator, addr: int) -> DVs:
-    bytes_ = emu.read_bytes(addr, 2)
-    return decode_dvs(bytes_[0], bytes_[1])
 
 
 def hunt(
@@ -64,11 +59,11 @@ def hunt(
             emu.load_state(state_bytes)
             if delay:
                 emu.tick(delay)
-            hunt_macro.run(emu)
-            emu.tick(cfg.post_macro_settle_frames)
-
-            species = emu.read_byte(cfg.party_species_addr)
-            dvs = _read_dvs(emu, cfg.party_dv_addr)
+            species, dvs, _ = run_until_species(
+                emu, hunt_macro,
+                species_addr=cfg.party_species_addr,
+                dv_addr=cfg.party_dv_addr,
+            )
             shiny = is_shiny(dvs)
             if on_attempt is not None:
                 on_attempt(n, species, dvs, shiny)
@@ -161,8 +156,9 @@ def replay_attempt(
         emu.load_state(state_bytes)
         if delay:
             emu.tick(delay)
-        hunt_macro.run(emu)
-        emu.tick(cfg.post_macro_settle_frames)
-        species = emu.read_byte(cfg.party_species_addr)
-        dvs = _read_dvs(emu, cfg.party_dv_addr)
+        species, dvs, _ = run_until_species(
+            emu, hunt_macro,
+            species_addr=cfg.party_species_addr,
+            dv_addr=cfg.party_dv_addr,
+        )
     return species, dvs

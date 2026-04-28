@@ -11,7 +11,6 @@ from rich.table import Table
 from . import config as cfg_mod
 from . import hunter, macro, pokemon, recorder, trace
 from .config import GameConfig
-from .dv import decode_dvs
 from .emulator import Emulator
 from .progress import live_progress
 from .trace import sha1_of_file
@@ -91,18 +90,19 @@ def _verify_windowed(cfg: GameConfig, rom: Path, state_path: Path, macro_path: P
     state_bytes = state_path.read_bytes()
     hunt_macro = macro.load(macro_path)
 
+    from .polling import run_until_species
+
     with Emulator(rom, headless=False, realtime=True) as emu:
         emu.load_state(state_bytes)
-        hunt_macro.run(emu)
-        emu.tick(cfg.post_macro_settle_frames)
+        species, dvs, _ = run_until_species(
+            emu, hunt_macro,
+            species_addr=cfg.party_species_addr,
+            dv_addr=cfg.party_dv_addr,
+        )
 
         click.echo("Macro complete — inspect the game state. Close the PyBoy window to continue.")
         while emu.tick(1, render=True):
             pass
-
-        species = emu.read_byte(cfg.party_species_addr)
-        raw = emu.read_bytes(cfg.party_dv_addr, 2)
-        dvs = decode_dvs(raw[0], raw[1])
 
     return species, dvs
 
