@@ -3,7 +3,9 @@
 Automatic Gen 1 shiny hunter for Pokémon Red, Blue, Green (JP), and Yellow.
 Runs PyBoy headlessly, soft-resets the game thousands of times per minute, and
 saves a `.sav` file the moment a Pokémon's DVs satisfy the Gen 2 transfer-shiny
-condition.
+condition. Works for any Pokémon — starters, gifts, wild encounters — as long as
+you can create a save-state checkpoint before the DV roll and a macro that
+triggers it.
 
 ## How it works
 
@@ -115,6 +117,14 @@ fundamental design, with minor differences in mixing constants and in
 later extend this tool to hunt natively in Gen 2, the same "inject
 frame jitter before the decisive A-press" trick applies.
 
+## Setup
+
+```bash
+python -mv venv .venv
+source .venv/bin/activate # bash/zsh
+source .venv/bin/activate.fish # fish
+```
+
 ## Install
 
 ```bash
@@ -137,46 +147,94 @@ language/region, drop a new file in `src/shiny_hunter/games/` mirroring
 
 ## Onboarding flow
 
-For each starter, you record a save-state once. Then you let the hunter run.
+Three steps: checkpoint, record, hunt. Works for any Pokémon whose DV roll
+you can park in front of (starters, gifts, wild encounters, etc.).
+
+### 1. Create a save-state checkpoint
+
+Play in a windowed emulator to the frame just before the DV roll, then close
+the window. For starters this is the "Do you want this Pokémon?" YES prompt.
 
 ```bash
-# 1. Record a save-state at the YES prompt for one Poké Ball.
 shiny-hunt bootstrap --rom roms/red.gb --starter bulbasaur
-# (PyBoy window opens. Play to the "Do you want this Pokémon?" YES prompt.
-#  Close the window — the state is saved to states/red_us_bulbasaur.state.)
+# PyBoy window opens. Play to the prompt. Close the window.
+# State saved to states/red_us_bulbasaur.state
+```
 
-# 2. (Optional) Replace the hand-tuned YAML macro with a recorded one.
+### 2. Record a macro
+
+Record the button sequence that triggers the DV roll (e.g., pressing A to
+confirm, advancing dialog until the party is formed). The macro is a
+frame-indexed JSON log of press/release events.
+
+```bash
 shiny-hunt record \
   --rom roms/red.gb \
   --from-state states/red_us_bulbasaur.state \
-  --out src/shiny_hunter/macros/red_us_starter.events.json
-# (PyBoy window opens with the bootstrap state already loaded. Press the
-#  buttons to confirm the starter and advance dialog through party-add.
-#  Close the window to write the JSON. Then point the GameConfig's
-#  starter_macro at the .events.json filename instead of the .yaml.)
+  --out macros/red_us_bulbasaur.events.json
+# PyBoy window opens with the checkpoint loaded.
+# Press the buttons to confirm the starter and advance dialog.
+# Close the window when done — the JSON is written.
+```
 
-# 3. Sanity-check that the macro lands in a party-formed state.
-shiny-hunt verify --rom roms/red.gb --starter bulbasaur
-# Prints species + DVs. If species is 0 or unknown, your macro stopped
-# too early — re-record (or extend the YAML's final `after`).
+### 3. Verify the macro
 
-# 4. Hunt.
-shiny-hunt run --rom roms/red.gb --starter bulbasaur --headless
+Check that the macro lands in a state where the Pokémon's DVs are readable.
+
+```bash
+shiny-hunt verify \
+  --rom roms/red.gb \
+  --state states/red_us_bulbasaur.state \
+  --macro macros/red_us_bulbasaur.events.json
+# Prints species + DVs. If species is "unknown", the macro stopped too
+# early — re-record with more frames after the last button press.
+```
+
+Use `--window` to watch the macro replay in real-time and visually inspect the
+game state before the DV check:
+
+```bash
+shiny-hunt verify \
+  --rom roms/red.gb \
+  --state states/red_us_bulbasaur.state \
+  --macro macros/red_us_bulbasaur.events.json \
+  --window
+# Plays the macro at 60 fps, then pauses. Close the window to see DVs.
+```
+
+### 4. Hunt
+
+```bash
+shiny-hunt run \
+  --rom roms/red.gb \
+  --state states/red_us_bulbasaur.state \
+  --macro macros/red_us_bulbasaur.events.json \
+  --headless
 # When a shiny is found, writes:
 #   shinies/bulbasaur_us_<NNNNNN>.sav        — battery save (Time-Capsule-able)
 #   shinies/bulbasaur_us_<NNNNNN>.trace.json — for `shiny-hunt replay`
 ```
 
-Repeat for `--starter charmander` / `--starter squirtle` (and
-`--starter pikachu` on Yellow).
+Other useful flags:
 
-## Replay a found shiny
+| Flag | Description |
+|------|-------------|
+| `--seed N` | Deterministic master RNG seed (default: `time_ns()`) |
+| `--max-attempts N` | Hard cap on resets (default: 100,000) |
+| `--window` | Show a PyBoy window instead of running headless |
+| `--continue-after-shiny` | Keep hunting after the first shiny |
+| `--out DIR` | Output directory for `.sav` + `.trace.json` (default: `shinies/`) |
+
+### 5. Replay a found shiny
 
 The trace pins ROM SHA-1, state SHA-1, master seed, and attempt index. With
-the same ROM + state, the run is deterministic:
+the same ROM, state, and macro, the run is deterministic:
 
 ```bash
-shiny-hunt replay --rom roms/red.gb --trace shinies/bulbasaur_us_000042.trace.json
+shiny-hunt replay \
+  --rom roms/red.gb \
+  --macro macros/red_us_bulbasaur.events.json \
+  --trace shinies/bulbasaur_us_000042.trace.json
 ```
 
 ## Project layout
@@ -188,12 +246,13 @@ src/shiny_hunter/
   emulator.py        PyBoy 2.x wrapper (banked SRAM dump, save/load state from bytes)
   recorder.py        windowed-mode joypad polling -> event-log macro
   dv.py              decode_dvs(), is_shiny()  — pure
+  pokemon.py         Gen 1 internal species index -> name (all 151)
   macro.py           YAML step macros + JSON event-log macros
   config.py          GameConfig + ROM-hash registry
-  trace.py           per-attempt JSON traces
+  trace.py           per-attempt JSON traces (schema v2)
   progress.py        rich Live counter
   games/             per-(game, region) configs (red_us, red_jp, blue_us, ...)
-  macros/            per-(game, region) starter + save macros (.yaml or .events.json)
+  macros/            per-(game, region) save macros (.yaml)
 ```
 
 ## Caveats
@@ -203,9 +262,8 @@ src/shiny_hunter/
   target. Verify against the disassembly's symbol file before running long
   sessions, or read the value at the supposed `party_dv_addr` and confirm it
   changes across attempts.
-- **Macro tuning.** The default `after` durations work for typical text-speed
-  settings. If `verify` reports `species=0`, the final settle frame budget is
-  too low — bump `after` on the last step of the starter macro.
+- **Macro tuning.** If `verify` reports `species=unknown`, the macro stopped
+  too early — re-record with more frames after the last button press.
 - **Checkpoint placement.** The save-state must be captured *before* the DV
   roll. The "YES" prompt is well before. If a checkpoint mistakenly sits past
   the roll, every attempt returns the same DVs — `verify` (run twice with
