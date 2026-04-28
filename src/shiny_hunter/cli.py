@@ -206,6 +206,13 @@ def verify(rom: Path, state_path: Path, macro_path: Path, game: str | None, regi
     is_flag=True,
     help="Keep hunting after the first shiny is found (default: stop).",
 )
+@click.option(
+    "--workers",
+    "num_workers",
+    type=int,
+    default=None,
+    help="Number of parallel workers (default: cpu_count - 1). Use 1 for single-threaded.",
+)
 def run(
     rom: Path,
     state_path: Path,
@@ -217,6 +224,7 @@ def run(
     out_dir: Path,
     headless: bool,
     continue_after_shiny: bool,
+    num_workers: int | None,
 ) -> None:
     """Hunt for a shiny Pokémon."""
     cfg = _resolve_config(rom, game, region)
@@ -228,33 +236,88 @@ def run(
         f"max={max_attempts:,}, headless={headless}"
     )
 
-    with live_progress() as (progress, updater):
-        def on_attempt(n: int, species: int, dvs, shiny: bool) -> None:
-            progress.attempts = n
-            progress.last_dvs = (dvs.atk, dvs.def_, dvs.spd, dvs.spc)
-            progress.last_species = species
-            if shiny:
-                progress.shinies += 1
-            updater.push()
+    if num_workers == 1:
+        with live_progress() as (progress, updater):
+            def on_attempt(n: int, species: int, dvs, shiny: bool) -> None:
+                progress.attempts = n
+                progress.last_dvs = (dvs.atk, dvs.def_, dvs.spd, dvs.spc)
+                progress.last_species = species
+                if shiny:
+                    progress.shinies += 1
+                updater.push()
 
-        result = hunter.hunt(
-            cfg=cfg,
-            rom_path=rom,
-            state_bytes=state_bytes,
-            state_path=str(state_path),
-            macro_path=macro_path,
-            out_dir=out_dir,
-            master_seed=master_seed,
-            max_attempts=max_attempts,
-            headless=headless,
-            on_attempt=on_attempt,
-            stop_on_first_shiny=not continue_after_shiny,
+            result = hunter.hunt(
+                cfg=cfg,
+                rom_path=rom,
+                state_bytes=state_bytes,
+                state_path=str(state_path),
+                macro_path=macro_path,
+                out_dir=out_dir,
+                master_seed=master_seed,
+                max_attempts=max_attempts,
+                headless=headless,
+                on_attempt=on_attempt,
+                stop_on_first_shiny=not continue_after_shiny,
+            )
+
+        click.echo(
+            f"done: {result.attempts:,} attempts, {result.shinies_found} shiny in "
+            f"{result.elapsed_s:0.1f}s ({result.attempts / max(result.elapsed_s, 1e-6):0.1f}/s)"
+        )
+    else:
+        from .workers import hunt_parallel
+        from .dv import decode_dvs
+
+        with live_progress() as (progress, updater):
+            def on_progress(total: int, species: int, shiny_count: int, dvs: tuple) -> None:
+                progress.attempts = total
+                progress.last_species = species
+                progress.last_dvs = dvs
+                progress.shinies = shiny_count
+                updater.push()
+
+            result = hunt_parallel(
+                rom_path=rom,
+                state_bytes=state_bytes,
+                macro_path=macro_path,
+                species_addr=cfg.party_species_addr,
+                dv_addr=cfg.party_dv_addr,
+                master_seed=master_seed,
+                max_attempts=max_attempts,
+                num_workers=num_workers,
+                on_progress=on_progress,
+            )
+
+        click.echo(
+            f"done: {result.total_attempts:,} attempts, {len(result.shinies)} shiny in "
+            f"{result.elapsed_s:0.1f}s ({result.total_attempts / max(result.elapsed_s, 1e-6):0.1f}/s)"
         )
 
-    click.echo(
-        f"done: {result.attempts:,} attempts, {result.shinies_found} shiny in "
-        f"{result.elapsed_s:0.1f}s ({result.attempts / max(result.elapsed_s, 1e-6):0.1f}/s)"
-    )
+        if result.shinies:
+            out_dir.mkdir(parents=True, exist_ok=True)
+            for res in result.shinies:
+                name = pokemon.species_name(res.species)
+                state_name = f"{name}_{cfg.region}_{res.attempt:06d}.state"
+                trace_name = f"{name}_{cfg.region}_{res.attempt:06d}.trace.json"
+                (out_dir / state_name).write_bytes(res.state_bytes)
+                dvs = decode_dvs(res.dvs_raw[0], res.dvs_raw[1])
+                trace.write(
+                    out_dir / trace_name,
+                    rom_path=rom,
+                    state_bytes=state_bytes,
+                    game=cfg.game,
+                    region=cfg.region,
+                    state_path=str(state_path),
+                    master_seed=res.master_seed,
+                    attempt=res.attempt,
+                    delay=res.delay,
+                    species=res.species,
+                    species_name=name,
+                    dvs=dvs,
+                )
+                click.echo(f"shiny! {name} (worker {res.worker_id}, attempt {res.attempt})")
+                click.echo(f"  state: {out_dir / state_name}")
+                click.echo(f"  trace: {out_dir / trace_name}")
 
 
 @main.command()
