@@ -43,7 +43,7 @@ pnpm run typecheck             # TypeScript type check (tsc --noEmit)
 
 `hunter.py:hunt()` drives the main reset loop: derive a seeded offset into a 65,536-frame delay window, then walk the window without replacement. Each attempt probes one pre-macro frame delay, runs the user-supplied macro, polls until the party species/DVs are readable, then checks the shiny predicate. On shiny: save emulator state and write trace JSON.
 
-Key: frame jitter is external scheduling, not the Game Boy's hardware RNG. This decouples attempt selection from emulator state and makes attempts deterministic given (master_seed, attempt_index). The macro and state are user-supplied via `--macro` and `--state`, making the tool work for any Pokémon (starters, gifts, wild encounters). Recommended workflow: run `shiny-hunt coverage` first to find which delays produce shinies (ranked by DV quality), then `shiny-hunt run --start-delay N` to jump straight to the best one.
+Key: frame jitter is external scheduling, not the Game Boy's hardware RNG. This decouples attempt selection from emulator state and makes attempts deterministic given (master_seed, attempt_index). The macro and state are user-supplied via `--macro` and `--state`, making the tool work for any Pokémon (starters, gifts, wild encounters). Recommended workflow: run `shiny-hunt run --continue-after-shiny` to scan all delays and find every shiny (ranked by DV quality), then `shiny-hunt run --start-delay N` to jump straight to the best one.
 
 ### Emulator Abstraction
 

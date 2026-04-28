@@ -8,7 +8,7 @@ from typing import Callable
 
 from . import macro, pokemon, trace
 from .config import GameConfig
-from .delays import DEFAULT_DELAY_WINDOW, attempt_cap, delay_for_attempt, seed_offset
+from .delays import DEFAULT_DELAY_WINDOW, seed_offset
 from .dv import DVs, is_shiny
 from .emulator import Emulator
 from .polling import run_until_species
@@ -40,7 +40,7 @@ def hunt(
     """Run the reset loop until `max_attempts` or the first shiny."""
     out_dir.mkdir(parents=True, exist_ok=True)
     hunt_macro = macro.load(macro_path)
-    max_attempts = attempt_cap(max_attempts, delay_window)
+    max_attempts = min(max_attempts, delay_window)
     effective_seed = start_delay if start_delay is not None else master_seed
 
     shinies = 0
@@ -149,7 +149,7 @@ def replay_attempt(
     """
     if target_attempt < 1:
         raise ValueError("target_attempt must be >= 1")
-    delay = delay_for_attempt(master_seed, target_attempt, delay_window)
+    delay = (seed_offset(master_seed, delay_window) + target_attempt - 1) % delay_window
 
     hunt_macro = macro.load(macro_path)
     with Emulator(rom_path, headless=headless) as emu:

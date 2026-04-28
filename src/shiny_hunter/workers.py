@@ -11,7 +11,7 @@ from queue import Empty
 from typing import Callable
 
 from . import macro
-from .delays import DEFAULT_DELAY_WINDOW, attempt_cap, delay_for_attempt
+from .delays import DEFAULT_DELAY_WINDOW
 from .dv import is_shiny
 from .emulator import Emulator
 from .polling import run_until_species
@@ -51,12 +51,12 @@ def _worker_loop(
     species_addr: int,
     dv_addr: int,
     master_seed: int,
-    max_attempts: int,
+    start_delay: int,
+    end_delay: int,
     result_queue: Queue,
     progress_queue: Queue,
     stop_event: MPEvent,
-    stride: int,
-    delay_window: int,
+    stop_after_first: bool,
 ) -> None:
     warnings.filterwarnings("ignore")
     hunt_macro = macro.load(Path(macro_path))
@@ -66,27 +66,15 @@ def _worker_loop(
     last_report = time.monotonic()
 
     with Emulator(Path(rom_path), headless=True) as emu:
-        global_attempt = worker_id + 1
-        if global_attempt > max_attempts:
-            progress_queue.put(WorkerProgress(
-                worker_id=worker_id,
-                attempts=0,
-                latest_species=0,
-                latest_dvs=(0, 0, 0, 0),
-            ))
-            return
-
-        current_delay = delay_for_attempt(master_seed, global_attempt, delay_window)
         emu.load_state(state_bytes)
-        if current_delay:
-            emu.tick(current_delay)
+        if start_delay:
+            emu.tick(start_delay)
 
-        while global_attempt <= max_attempts:
+        for delay in range(start_delay, end_delay):
             if stop_event.is_set():
                 break
 
             n += 1
-            delay = current_delay
             pre_macro_state = emu.save_state_bytes()
 
             species, dvs, _ = run_until_species(
@@ -109,30 +97,22 @@ def _worker_loop(
 
             if is_shiny(dvs):
                 emu_state = emu.save_state_bytes()
-
                 result_queue.put(WorkerResult(
                     worker_id=worker_id,
-                    attempt=global_attempt,
+                    attempt=n,
                     master_seed=master_seed,
                     delay=delay,
                     species=species,
                     dvs_raw=(dvs.atk << 4 | dvs.def_, dvs.spd << 4 | dvs.spc),
                     state_bytes=emu_state,
                 ))
-                stop_event.set()
-                break
+                if stop_after_first:
+                    stop_event.set()
+                    break
 
-            global_attempt += stride
-            if global_attempt <= max_attempts:
-                next_delay = delay_for_attempt(master_seed, global_attempt, delay_window)
-                if next_delay > current_delay:
-                    emu.load_state(pre_macro_state)
-                    emu.tick(next_delay - current_delay)
-                else:
-                    emu.load_state(state_bytes)
-                    if next_delay:
-                        emu.tick(next_delay)
-                current_delay = next_delay
+            if delay + 1 < end_delay:
+                emu.load_state(pre_macro_state)
+                emu.tick(1)
 
     progress_queue.put(WorkerProgress(
         worker_id=worker_id,
@@ -154,14 +134,17 @@ def hunt_parallel(
     num_workers: int | None = None,
     on_progress: Callable[[int, int, int, tuple[int, int, int, int]], None] | None = None,
     on_worker_progress: Callable[[int, int], None] | None = None,
+    on_shiny: Callable[[WorkerResult], None] | None = None,
     delay_window: int = DEFAULT_DELAY_WINDOW,
     start_delay: int | None = None,
+    stop_after_first: bool = True,
 ) -> ParallelHuntResult:
     if num_workers is None:
         num_workers = max(1, (os.cpu_count() or 2) - 1)
 
-    effective_seed = start_delay if start_delay is not None else master_seed
-    max_attempts = attempt_cap(max_attempts, delay_window)
+    total_delays = min(max_attempts, delay_window)
+    base = start_delay if start_delay is not None else 0
+    chunk = (total_delays + num_workers - 1) // num_workers
 
     result_queue: Queue = Queue()
     progress_queue: Queue = Queue()
@@ -169,6 +152,10 @@ def hunt_parallel(
 
     workers: list[Process] = []
     for i in range(num_workers):
+        s = base + i * chunk
+        e = min(base + total_delays, s + chunk)
+        if s >= base + total_delays:
+            break
         p = Process(
             target=_worker_loop,
             args=(
@@ -178,17 +165,19 @@ def hunt_parallel(
                 str(macro_path),
                 species_addr,
                 dv_addr,
-                effective_seed,
-                max_attempts,
+                master_seed,
+                s,
+                e,
                 result_queue,
                 progress_queue,
                 stop_event,
-                num_workers,
-                delay_window,
+                stop_after_first,
             ),
             daemon=True,
         )
         workers.append(p)
+
+    actual_workers = len(workers)
 
     t0 = time.monotonic()
     for p in workers:
@@ -196,7 +185,7 @@ def hunt_parallel(
 
     shinies: list[WorkerResult] = []
     total_attempts = 0
-    worker_attempts = [0] * num_workers
+    worker_attempts = [0] * actual_workers
 
     def drain_progress() -> None:
         nonlocal total_attempts
@@ -224,12 +213,13 @@ def hunt_parallel(
             except Empty:
                 break
             shinies.append(res)
+            if on_shiny:
+                on_shiny(res)
 
     try:
         while any(p.is_alive() for p in workers):
             drain_progress()
             drain_results()
-
             time.sleep(0.05)
     except KeyboardInterrupt:
         stop_event.set()
