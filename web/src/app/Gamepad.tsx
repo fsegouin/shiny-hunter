@@ -1,7 +1,15 @@
 'use client';
 
-import { useCallback } from 'react';
+import { useCallback, useRef } from 'react';
 import type { Button as GbButton, WasmBoyEmulator } from '@/lib/emulator/wasmboy';
+
+// Game Boy frames at 60 Hz. WasmBoy runs in a worker, and our
+// setJoypadState calls post messages to it; a too-fast press+release
+// can let both messages arrive between two GB joypad samplings and
+// the game sees nothing. Hold every press for at least this many ms
+// to guarantee at least a few frames of "down" state. 80 ms ≈ 5 frames,
+// which is well above any GB input handler's debounce.
+const MIN_HOLD_MS = 80;
 
 /**
  * On-screen Game Boy gamepad. Each button uses pointer events so it
@@ -27,18 +35,49 @@ function PadButton({
   button: GbButton;
   style?: React.CSSProperties;
 }) {
+  const releaseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pressedAt = useRef(0);
+
   const press = useCallback(
     (e: React.PointerEvent<HTMLButtonElement>) => {
       e.preventDefault();
-      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+      try {
+        // Capture so pointermove/up/cancel keep firing on this button
+        // even if the finger drifts. NOTE: pointerleave still fires on
+        // the actual hit-test geometry regardless of capture, which is
+        // why we deliberately don't bind it — small wobbles would
+        // release the button mid-press.
+        e.currentTarget.setPointerCapture(e.pointerId);
+      } catch {
+        // setPointerCapture can throw on certain browsers if the
+        // pointer is no longer active; safe to ignore.
+      }
+      // If a delayed-release was scheduled from a previous tap, cancel
+      // it — we're starting a new press cycle.
+      if (releaseTimer.current !== null) {
+        clearTimeout(releaseTimer.current);
+        releaseTimer.current = null;
+      }
       emu.pressButton(button);
+      pressedAt.current = performance.now();
     },
     [emu, button],
   );
   const release = useCallback(
     (e: React.PointerEvent<HTMLButtonElement>) => {
       e.preventDefault();
-      emu.releaseButton(button);
+      const held = performance.now() - pressedAt.current;
+      const remaining = MIN_HOLD_MS - held;
+      if (remaining <= 0) {
+        emu.releaseButton(button);
+      } else {
+        // User released too fast; defer release so the GB still sees
+        // ~5 frames of "down" state before "up".
+        releaseTimer.current = setTimeout(() => {
+          emu.releaseButton(button);
+          releaseTimer.current = null;
+        }, remaining);
+      }
     },
     [emu, button],
   );
@@ -48,7 +87,6 @@ function PadButton({
       onPointerDown={press}
       onPointerUp={release}
       onPointerCancel={release}
-      onPointerLeave={release}
     >
       {label}
     </button>
