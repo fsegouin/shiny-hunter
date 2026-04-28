@@ -1,117 +1,66 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import type { Button as GbButton, WasmBoyEmulator } from '@/lib/emulator/wasmboy';
+import type { WasmBoyEmulator } from '@/lib/emulator/wasmboy';
+import './gamepad.css';
 
 /**
- * On-screen Game Boy gamepad backed by `responsive-gamepad` — the same
- * input library WasmBoy.app uses. We don't roll our own pointer
- * handling: each button is registered via
- * `ResponsiveGamepad.TouchInput.addButtonInput(element, INPUT)` and
- * WasmBoy reads the joypad state from responsive-gamepad each frame
- * via `enableDefaultJoypad()`.
+ * On-screen Game Boy gamepad — fixed-position overlay matching the
+ * wasmboy.app layout: d-pad bottom-left, A/B bottom-right, Start/Select
+ * bottom-center. Buttons are wired through WasmBoy's bundled
+ * ResponsiveGamepad instance (the standalone `responsive-gamepad`
+ * package is a separate singleton WasmBoy never reads).
  *
- * IMPORTANT: WasmBoy *bundles* its own copy of responsive-gamepad at
- * build time. The singleton you'd get from
- * `import('responsive-gamepad')` is a SEPARATE instance whose state
- * WasmBoy never polls — registering buttons on that instance is a
- * silent no-op. We therefore use `emu.responsiveGamepad` (which the
- * wrapper exposes from `WasmBoy.ResponsiveGamepad`) so the buttons
- * attach to the same instance WasmBoy reads from.
+ * The d-pad is a SINGLE element — `addDpadInput` does internal
+ * hit-testing of the four quadrants, so diagonals work and small
+ * finger drift doesn't release the press the way 4-button approach
+ * would.
  *
- * NOTE: the parent must init in 'windowed' mode (which calls
+ * The parent must init the emulator in 'windowed' mode (which calls
  * `enableDefaultJoypad()`) before mounting this component.
  */
 
-const BTN_STYLE: React.CSSProperties = {
-  width: 56, height: 56, padding: 0,
-  display: 'flex', alignItems: 'center', justifyContent: 'center',
-  fontSize: 14, fontWeight: 600,
-  touchAction: 'none', userSelect: 'none', WebkitUserSelect: 'none',
-};
-
-// Map our public Button names to responsive-gamepad input keys.
-// D-pad buttons are DPAD_*, action buttons share names.
-const RG_INPUT_KEY: Record<GbButton, string> = {
-  UP: 'DPAD_UP',
-  DOWN: 'DPAD_DOWN',
-  LEFT: 'DPAD_LEFT',
-  RIGHT: 'DPAD_RIGHT',
-  A: 'A',
-  B: 'B',
-  START: 'START',
-  SELECT: 'SELECT',
-};
-
-function PadButton({
-  label,
-  emu,
-  button,
-  style,
-}: {
-  label: string;
-  emu: WasmBoyEmulator;
-  button: GbButton;
-  style?: React.CSSProperties;
-}) {
-  const ref = useRef<HTMLButtonElement | null>(null);
-  useEffect(() => {
-    if (!ref.current) return;
-    const RG = emu.responsiveGamepad;
-    const inputKey = RG_INPUT_KEY[button];
-    const inputId = RG.RESPONSIVE_GAMEPAD_INPUTS[inputKey];
-    const cancel = RG.TouchInput.addButtonInput(ref.current, inputId);
-    return cancel;
-  }, [emu, button]);
-  return (
-    <button ref={ref} style={{ ...BTN_STYLE, ...style }}>
-      {label}
-    </button>
-  );
-}
-
 export function Gamepad({ emu }: { emu: WasmBoyEmulator }) {
-  return (
-    <div
-      style={{
-        display: 'grid',
-        gridTemplateColumns: 'auto auto',
-        gap: 24,
-        alignItems: 'center',
-        margin: '12px 0',
-      }}
-    >
-      {/* D-pad */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(3, 56px)',
-          gridTemplateRows: 'repeat(3, 56px)',
-          gap: 2,
-        }}
-      >
-        <span />
-        <PadButton label="↑" emu={emu} button="UP" />
-        <span />
-        <PadButton label="←" emu={emu} button="LEFT" />
-        <span />
-        <PadButton label="→" emu={emu} button="RIGHT" />
-        <span />
-        <PadButton label="↓" emu={emu} button="DOWN" />
-        <span />
-      </div>
+  const dpadRef = useRef<HTMLDivElement | null>(null);
+  const aRef = useRef<HTMLButtonElement | null>(null);
+  const bRef = useRef<HTMLButtonElement | null>(null);
+  const startRef = useRef<HTMLButtonElement | null>(null);
+  const selectRef = useRef<HTMLButtonElement | null>(null);
 
-      {/* A/B + Start/Select */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <PadButton label="B" emu={emu} button="B" style={{ background: '#421', color: '#fc6' }} />
-          <PadButton label="A" emu={emu} button="A" style={{ background: '#421', color: '#fc6' }} />
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <PadButton label="SELECT" emu={emu} button="SELECT" style={{ width: 80, fontSize: 11 }} />
-          <PadButton label="START" emu={emu} button="START" style={{ width: 80, fontSize: 11 }} />
-        </div>
-      </div>
+  useEffect(() => {
+    const RG = emu.responsiveGamepad;
+    const inputs = RG.RESPONSIVE_GAMEPAD_INPUTS;
+    const cancels: Array<() => void> = [];
+
+    if (dpadRef.current) {
+      cancels.push(
+        RG.TouchInput.addDpadInput(dpadRef.current, { allowMultipleDirections: false }),
+      );
+    }
+    if (aRef.current) {
+      cancels.push(RG.TouchInput.addButtonInput(aRef.current, inputs.A));
+    }
+    if (bRef.current) {
+      cancels.push(RG.TouchInput.addButtonInput(bRef.current, inputs.B));
+    }
+    if (startRef.current) {
+      cancels.push(RG.TouchInput.addButtonInput(startRef.current, inputs.START));
+    }
+    if (selectRef.current) {
+      cancels.push(RG.TouchInput.addButtonInput(selectRef.current, inputs.SELECT));
+    }
+    return () => {
+      for (const c of cancels) c();
+    };
+  }, [emu]);
+
+  return (
+    <div className="gp-overlay">
+      <div ref={dpadRef} className="gp-dpad" aria-label="D-pad" />
+      <button ref={bRef} className="gp-btn gp-btn-b" aria-label="B">B</button>
+      <button ref={aRef} className="gp-btn gp-btn-a" aria-label="A">A</button>
+      <button ref={selectRef} className="gp-btn gp-btn-select" aria-label="Select">SELECT</button>
+      <button ref={startRef} className="gp-btn gp-btn-start" aria-label="Start">START</button>
     </div>
   );
 }
