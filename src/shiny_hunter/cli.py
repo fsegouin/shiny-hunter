@@ -541,5 +541,79 @@ def record(
     )
 
 
+@main.command()
+@click.option(
+    "--trace",
+    "trace_path",
+    required=True,
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="Path to the .trace.json sidecar from a found shiny.",
+)
+@click.option(
+    "--rom",
+    required=True,
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="Gen 1 ROM (.gb) that produced the trace.",
+)
+@click.option(
+    "--macro",
+    "macro_path",
+    required=True,
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="Gen 1 macro used during the hunt (.yaml or .events.json).",
+)
+@click.option(
+    "--crystal-rom",
+    required=True,
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="Pokemon Crystal ROM (.gbc).",
+)
+@click.option(
+    "--crystal-state",
+    required=True,
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="Crystal template save-state (.state) with 1 pokemon in party.",
+)
+@click.option(
+    "--crystal-macro",
+    required=True,
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="Crystal macro to navigate to slot 2 stats screen.",
+)
+@click.option(
+    "--out",
+    "out_path",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+    help="Output PNG path. Defaults to <trace_stem>.png alongside the trace.",
+)
+def preview(
+    trace_path: Path,
+    rom: Path,
+    macro_path: Path,
+    crystal_rom: Path,
+    crystal_state: Path,
+    crystal_macro: Path,
+    out_path: Path | None,
+) -> None:
+    """Generate a Crystal screenshot of a shiny found in Gen 1."""
+    from .preview import generate_preview
+
+    if out_path is None:
+        out_path = trace_path.with_suffix(".png")
+
+    click.echo(f"Generating preview for {trace_path.name}...")
+    result = generate_preview(
+        trace_path=trace_path,
+        gen1_rom=rom,
+        macro_path=macro_path,
+        crystal_rom=crystal_rom,
+        crystal_state=crystal_state,
+        crystal_macro=crystal_macro,
+        out_png=out_path,
+    )
+    click.echo(f"Preview saved to {result}")
+
+
 if __name__ == "__main__":
     main()
