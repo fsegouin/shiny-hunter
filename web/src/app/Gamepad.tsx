@@ -1,20 +1,25 @@
 'use client';
 
-import { useCallback, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import type { Button as GbButton, WasmBoyEmulator } from '@/lib/emulator/wasmboy';
 
-// Game Boy frames at 60 Hz. WasmBoy runs in a worker, and our
-// setJoypadState calls post messages to it; a too-fast press+release
-// can let both messages arrive between two GB joypad samplings and
-// the game sees nothing. Hold every press for at least this many ms
-// to guarantee at least a few frames of "down" state. 80 ms ≈ 5 frames,
-// which is well above any GB input handler's debounce.
-const MIN_HOLD_MS = 80;
-
 /**
- * On-screen Game Boy gamepad. Each button uses pointer events so it
- * works on touch (iPhone), mouse, and stylus. `touchAction: 'none'`
- * stops the page from scrolling while the user is mashing buttons.
+ * On-screen Game Boy gamepad backed by `responsive-gamepad` — the same
+ * input library WasmBoy.app uses. We don't roll our own pointer
+ * handling: each button is registered via
+ * `ResponsiveGamepad.TouchInput.addButtonInput(element, INPUT)` and
+ * WasmBoy reads the joypad state from responsive-gamepad each frame
+ * via `enableDefaultJoypad()`.
+ *
+ * Why not setJoypadState directly: a hand-rolled
+ * pointerdown→setJoypadState→pointerup→setJoypadState pipeline races
+ * the WasmBoy worker; quick taps can flip the joypad bit twice between
+ * GB samplings and the game sees nothing. responsive-gamepad solves
+ * this by maintaining persistent state that WasmBoy polls.
+ *
+ * NOTE: the parent must call `enableDefaultJoypad()` on the WasmBoy
+ * instance before mounting this component, and disable it again (and
+ * fall back to manual setJoypadState) when switching to headless mode.
  */
 
 const BTN_STYLE: React.CSSProperties = {
@@ -24,76 +29,59 @@ const BTN_STYLE: React.CSSProperties = {
   touchAction: 'none', userSelect: 'none', WebkitUserSelect: 'none',
 };
 
+// Map our public Button names to responsive-gamepad input keys.
+// D-pad buttons are DPAD_*, action buttons share names.
+const RG_INPUT_KEY: Record<GbButton, string> = {
+  UP: 'DPAD_UP',
+  DOWN: 'DPAD_DOWN',
+  LEFT: 'DPAD_LEFT',
+  RIGHT: 'DPAD_RIGHT',
+  A: 'A',
+  B: 'B',
+  START: 'START',
+  SELECT: 'SELECT',
+};
+
 function PadButton({
   label,
-  emu,
   button,
   style,
 }: {
   label: string;
-  emu: WasmBoyEmulator;
   button: GbButton;
   style?: React.CSSProperties;
 }) {
-  const releaseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pressedAt = useRef(0);
-
-  const press = useCallback(
-    (e: React.PointerEvent<HTMLButtonElement>) => {
-      e.preventDefault();
-      try {
-        // Capture so pointermove/up/cancel keep firing on this button
-        // even if the finger drifts. NOTE: pointerleave still fires on
-        // the actual hit-test geometry regardless of capture, which is
-        // why we deliberately don't bind it — small wobbles would
-        // release the button mid-press.
-        e.currentTarget.setPointerCapture(e.pointerId);
-      } catch {
-        // setPointerCapture can throw on certain browsers if the
-        // pointer is no longer active; safe to ignore.
-      }
-      // If a delayed-release was scheduled from a previous tap, cancel
-      // it — we're starting a new press cycle.
-      if (releaseTimer.current !== null) {
-        clearTimeout(releaseTimer.current);
-        releaseTimer.current = null;
-      }
-      emu.pressButton(button);
-      pressedAt.current = performance.now();
-    },
-    [emu, button],
-  );
-  const release = useCallback(
-    (e: React.PointerEvent<HTMLButtonElement>) => {
-      e.preventDefault();
-      const held = performance.now() - pressedAt.current;
-      const remaining = MIN_HOLD_MS - held;
-      if (remaining <= 0) {
-        emu.releaseButton(button);
-      } else {
-        // User released too fast; defer release so the GB still sees
-        // ~5 frames of "down" state before "up".
-        releaseTimer.current = setTimeout(() => {
-          emu.releaseButton(button);
-          releaseTimer.current = null;
-        }, remaining);
-      }
-    },
-    [emu, button],
-  );
+  const ref = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => {
+    let cancel: (() => void) | undefined;
+    let mounted = true;
+    (async () => {
+      const { ResponsiveGamepad } = await import('responsive-gamepad');
+      if (!mounted || !ref.current) return;
+      const inputKey = RG_INPUT_KEY[button];
+      const inputId = ResponsiveGamepad.RESPONSIVE_GAMEPAD_INPUTS[
+        inputKey as keyof typeof ResponsiveGamepad.RESPONSIVE_GAMEPAD_INPUTS
+      ];
+      cancel = ResponsiveGamepad.TouchInput.addButtonInput(ref.current, inputId);
+    })();
+    return () => {
+      mounted = false;
+      cancel?.();
+    };
+  }, [button]);
   return (
-    <button
-      style={{ ...BTN_STYLE, ...style }}
-      onPointerDown={press}
-      onPointerUp={release}
-      onPointerCancel={release}
-    >
+    <button ref={ref} style={{ ...BTN_STYLE, ...style }}>
       {label}
     </button>
   );
 }
 
 export function Gamepad({ emu }: { emu: WasmBoyEmulator }) {
+  // Suppress unused warning: the prop is here so consumers can keep
+  // referencing the active emulator instance, but the gamepad itself
+  // talks to responsive-gamepad via global state and doesn't need
+  // per-button emu plumbing.
+  void emu;
   return (
     <div
       style={{
@@ -114,35 +102,25 @@ export function Gamepad({ emu }: { emu: WasmBoyEmulator }) {
         }}
       >
         <span />
-        <PadButton label="↑" emu={emu} button="UP" />
+        <PadButton label="↑" button="UP" />
         <span />
-        <PadButton label="←" emu={emu} button="LEFT" />
+        <PadButton label="←" button="LEFT" />
         <span />
-        <PadButton label="→" emu={emu} button="RIGHT" />
+        <PadButton label="→" button="RIGHT" />
         <span />
-        <PadButton label="↓" emu={emu} button="DOWN" />
+        <PadButton label="↓" button="DOWN" />
         <span />
       </div>
 
       {/* A/B + Start/Select */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         <div style={{ display: 'flex', gap: 8 }}>
-          <PadButton label="B" emu={emu} button="B" style={{ background: '#421', color: '#fc6' }} />
-          <PadButton label="A" emu={emu} button="A" style={{ background: '#421', color: '#fc6' }} />
+          <PadButton label="B" button="B" style={{ background: '#421', color: '#fc6' }} />
+          <PadButton label="A" button="A" style={{ background: '#421', color: '#fc6' }} />
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <PadButton
-            label="SELECT"
-            emu={emu}
-            button="SELECT"
-            style={{ width: 80, fontSize: 11 }}
-          />
-          <PadButton
-            label="START"
-            emu={emu}
-            button="START"
-            style={{ width: 80, fontSize: 11 }}
-          />
+          <PadButton label="SELECT" button="SELECT" style={{ width: 80, fontSize: 11 }} />
+          <PadButton label="START" button="START" style={{ width: 80, fontSize: 11 }} />
         </div>
       </div>
     </div>

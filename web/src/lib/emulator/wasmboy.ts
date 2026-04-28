@@ -104,10 +104,20 @@ export async function init(opts: InitOptions): Promise<WasmBoyEmulator> {
     opts.canvas,
   );
 
-  // We send joypad state ourselves so the bootstrap UI's on-screen
-  // buttons are the single source of truth (and so the hunter loop's
-  // setJoypadState can't race against a stray keyboard listener).
-  WasmBoy.disableDefaultJoypad();
+  // Joypad source-of-truth depends on the mode:
+  //  - windowed: responsive-gamepad (via enableDefaultJoypad). The UI
+  //    binds DOM elements through ResponsiveGamepad.TouchInput; WasmBoy
+  //    polls responsive-gamepad each frame. Hand-rolling
+  //    pointerdown→setJoypadState races the worker — quick taps can
+  //    flip the bit twice within one GB frame and the game sees nothing.
+  //  - headless: setJoypadState only, driven by macro replay. We
+  //    disable the default joypad so a stray keyboard listener can't
+  //    race the hunter loop.
+  if (mode === 'windowed') {
+    WasmBoy.enableDefaultJoypad();
+  } else {
+    WasmBoy.disableDefaultJoypad();
+  }
 
   await WasmBoy.loadROM(opts.rom);
 
