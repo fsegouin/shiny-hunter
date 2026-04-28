@@ -35,18 +35,20 @@ def hunt(
     on_attempt: Callable[[int, int, DVs, bool], None] | None = None,
     stop_on_first_shiny: bool = True,
     delay_window: int = DEFAULT_DELAY_WINDOW,
+    start_delay: int | None = None,
 ) -> HuntResult:
     """Run the reset loop until `max_attempts` or the first shiny."""
     out_dir.mkdir(parents=True, exist_ok=True)
     hunt_macro = macro.load(macro_path)
     max_attempts = attempt_cap(max_attempts, delay_window)
+    effective_seed = start_delay if start_delay is not None else master_seed
 
     shinies = 0
     t0 = time.monotonic()
     n = 0
 
     with Emulator(rom_path, headless=headless) as emu:
-        current_delay = seed_offset(master_seed, delay_window)
+        current_delay = seed_offset(effective_seed, delay_window)
         emu.load_state(state_bytes)
         if current_delay:
             emu.tick(current_delay)
@@ -73,7 +75,7 @@ def hunt(
                     state_bytes=state_bytes,
                     state_path=state_path,
                     out_dir=out_dir,
-                    master_seed=master_seed,
+                    master_seed=effective_seed,
                     attempt=n,
                     delay=delay,
                     species=species,

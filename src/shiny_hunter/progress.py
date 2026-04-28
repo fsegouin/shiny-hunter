@@ -12,13 +12,15 @@ from rich.table import Table
 
 
 class Progress:
-    def __init__(self, *, total_attempts: int | None = None) -> None:
+    def __init__(self, *, total_attempts: int | None = None, num_workers: int = 1) -> None:
         self._start = time.monotonic()
         self.attempts = 0
         self.shinies = 0
         self.last_dvs: tuple[int, int, int, int] | None = None
         self.last_species: int | None = None
         self.total_attempts = total_attempts
+        self.num_workers = num_workers
+        self.worker_attempts: list[int] = [0] * max(1, num_workers)
 
     def render(self) -> Table:
         elapsed = max(time.monotonic() - self._start, 1e-6)
@@ -36,8 +38,18 @@ class Progress:
                     width=32,
                 ),
             )
-            table.add_row("", f"{min(self.attempts, total):,}/{total:,} attempts")
-        table.add_row("attempts", f"{self.attempts:,}")
+        if total is not None:
+            table.add_row("attempts", f"{self.attempts:,} / {total:,}")
+        else:
+            table.add_row("attempts", f"{self.attempts:,}")
+        if self.num_workers > 1:
+            per_worker = total // self.num_workers if total else None
+            for i, wa in enumerate(self.worker_attempts):
+                if per_worker:
+                    bar = ProgressBar(total=per_worker, completed=min(wa, per_worker), width=20)
+                    table.add_row(f"  worker {i}", bar)
+                else:
+                    table.add_row(f"  worker {i}", f"{wa:,}")
         table.add_row("shinies", str(self.shinies))
         table.add_row("rate", f"{rate:0.1f}/s")
         table.add_row("elapsed", f"{elapsed:0.1f}s")
@@ -57,8 +69,9 @@ def live_progress(
     refresh_per_second: float = 4,
     *,
     total_attempts: int | None = None,
+    num_workers: int = 1,
 ) -> Iterator[tuple[Progress, "_Updater"]]:
-    progress = Progress(total_attempts=total_attempts)
+    progress = Progress(total_attempts=total_attempts, num_workers=num_workers)
     console = console or Console()
     with Live(progress.render(), console=console, refresh_per_second=refresh_per_second) as live:
         yield progress, _Updater(progress, live)

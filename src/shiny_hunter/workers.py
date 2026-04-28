@@ -57,13 +57,13 @@ def _worker_loop(
     stop_event: MPEvent,
     stride: int,
     delay_window: int,
-    progress_interval: int = 50,
 ) -> None:
     warnings.filterwarnings("ignore")
     hunt_macro = macro.load(Path(macro_path))
     n = 0
     latest_species = 0
     latest_dvs = (0, 0, 0, 0)
+    last_report = time.monotonic()
 
     with Emulator(Path(rom_path), headless=True) as emu:
         global_attempt = worker_id + 1
@@ -97,13 +97,15 @@ def _worker_loop(
             latest_species = species
             latest_dvs = (dvs.atk, dvs.def_, dvs.spd, dvs.spc)
 
-            if n % progress_interval == 0:
+            now = time.monotonic()
+            if now - last_report >= 1.0:
                 progress_queue.put(WorkerProgress(
                     worker_id=worker_id,
                     attempts=n,
                     latest_species=latest_species,
                     latest_dvs=latest_dvs,
                 ))
+                last_report = now
 
             if is_shiny(dvs):
                 emu_state = emu.save_state_bytes()
@@ -151,11 +153,14 @@ def hunt_parallel(
     max_attempts: int,
     num_workers: int | None = None,
     on_progress: Callable[[int, int, int, tuple[int, int, int, int]], None] | None = None,
+    on_worker_progress: Callable[[int, int], None] | None = None,
     delay_window: int = DEFAULT_DELAY_WINDOW,
+    start_delay: int | None = None,
 ) -> ParallelHuntResult:
     if num_workers is None:
         num_workers = max(1, (os.cpu_count() or 2) - 1)
 
+    effective_seed = start_delay if start_delay is not None else master_seed
     max_attempts = attempt_cap(max_attempts, delay_window)
 
     result_queue: Queue = Queue()
@@ -173,7 +178,7 @@ def hunt_parallel(
                 str(macro_path),
                 species_addr,
                 dv_addr,
-                master_seed,
+                effective_seed,
                 max_attempts,
                 result_queue,
                 progress_queue,
@@ -202,6 +207,8 @@ def hunt_parallel(
                 break
             worker_attempts[prog.worker_id] = prog.attempts
             total_attempts = sum(worker_attempts)
+            if on_worker_progress:
+                on_worker_progress(prog.worker_id, prog.attempts)
             if on_progress:
                 on_progress(
                     total_attempts,

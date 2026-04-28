@@ -96,10 +96,12 @@ seeded no-repeat walk over a 65,536-frame window. Each emulated frame is
 instant of each call — which in turn shifts `hRandomAdd`/`hRandomSub`
 and, ultimately, the two DV bytes.
 
-Use `shiny-hunt coverage` before a long hunt to scan the delay window
-for a given state/macro pair. If it exhausts the window without finding
-a shiny delay, more attempts with that same state/macro will just repeat
-non-shiny outcomes.
+Use `shiny-hunt coverage` before a long hunt to scan the entire delay
+window for a given state/macro pair. It runs the emulator for each
+delay, reports every shiny delay found (ranked by DV quality), and
+suggests the best one to use with `shiny-hunt run --start-delay`. If it
+exhausts the window without finding a shiny, that state/macro combo
+cannot produce one — re-record the macro or create a new checkpoint.
 
 This is exactly the same physical phenomenon that makes manual
 soft-resetting work on real hardware: a human can't press A on the same
@@ -210,7 +212,56 @@ shiny-hunt verify \
 # Plays the macro at 60 fps, then pauses. Close the window to see DVs.
 ```
 
-### 4. Hunt
+### 4. Scan for shiny delays (recommended first step)
+
+Before committing to a long hunt, use `coverage` to scan the entire
+65,536-frame delay window and find out which delays (if any) produce a
+shiny for your state/macro combo. This runs the emulator for each delay
+— load state, tick N frames, run macro, read DVs — but skips saving
+state files and traces, making it significantly faster than a full hunt.
+
+```bash
+shiny-hunt coverage \
+  --rom roms/red.gb \
+  --state states/red_us_eevee.state \
+  --macro macros/red_us_eevee.events.json
+# Scans all 65,536 delays in parallel across all cores.
+# Reports every shiny delay found, ranked by DV quality (ATK descending).
+# Example output:
+#   found 8 shiny delay(s):
+#     delay=42,000  EEVEE (0x66)  ATK=15 DEF=10 SPD=10 SPC=10 HP=8  <<< best
+#     delay=13,712  EEVEE (0x66)  ATK=14 DEF=10 SPD=10 SPC=10 HP=0
+#     ...
+#   best: delay 42,000 — ATK=15, HP=8
+#   use:  shiny-hunt run --start-delay 42000 ...
+```
+
+If coverage exhausts the window without finding a shiny, that state/macro
+pair cannot produce one — re-record the macro or create a new checkpoint.
+Use `--stop-at-first` to exit as soon as the first shiny delay is found.
+
+### 5. Hunt
+
+With a known shiny delay from coverage, use `--start-delay` to jump
+straight to it. The emulator runs the full simulation so it can save
+the resulting state file and SRAM for you to resume from.
+
+```bash
+shiny-hunt run \
+  --rom roms/red.gb \
+  --state states/red_us_eevee.state \
+  --macro macros/red_us_eevee.events.json \
+  --start-delay 42000 \
+  --headless
+# Hits the shiny on the first attempt.
+# Writes:
+#   shinies/eevee_us_000001.state       — resume with `shiny-hunt resume`
+#   shinies/eevee_us_000001.trace.json  — for `shiny-hunt replay`
+```
+
+You can also run without `--start-delay` to sweep through delays from a
+random starting point — this works but may take a while before landing
+on a shiny delay:
 
 ```bash
 shiny-hunt run \
@@ -218,16 +269,13 @@ shiny-hunt run \
   --state states/red_us_eevee.state \
   --macro macros/red_us_eevee.events.json \
   --headless
-# Runs on all available cores by default.
-# When a shiny is found, writes:
-#   shinies/eevee_us_<NNNNNN>.state       — resume with `shiny-hunt resume`
-#   shinies/eevee_us_<NNNNNN>.trace.json  — for `shiny-hunt replay`
 ```
 
 Other useful flags:
 
 | Flag | Description |
 |------|-------------|
+| `--start-delay N` | Start at this specific frame delay (e.g. from `coverage` output) |
 | `--seed N` | Deterministic master RNG seed (default: `time_ns()`) |
 | `--max-attempts N` | Hard cap on resets (default: 100,000) |
 | `--workers N` | Parallel worker count (default: cpu_count - 1; use 1 for single-threaded) |
@@ -235,19 +283,6 @@ Other useful flags:
 | `--window` | Show a PyBoy window instead of running headless |
 | `--continue-after-shiny` | Keep hunting after the first shiny |
 | `--out DIR` | Output directory for `.state` + `.trace.json` (default: `shinies/`) |
-
-### 5. Check delay coverage
-
-```bash
-shiny-hunt coverage \
-  --rom roms/red.gb \
-  --state states/red_us_eevee.state \
-  --macro macros/red_us_eevee.events.json
-```
-
-This scans sequential frame delays from the checkpoint and reports the
-first shiny delay, or confirms that none exists in the scanned window.
-Use `--full` to continue after the first shiny and count all shiny delays.
 
 ### 6. Replay a found shiny
 
@@ -261,7 +296,7 @@ shiny-hunt replay \
   --trace shinies/eevee_us_000042.trace.json
 ```
 
-### 7. Resume a found shiny
+### 8. Resume a found shiny
 
 ```bash
 shiny-hunt resume --rom roms/red.gb --state shinies/eevee_us_004200.state
