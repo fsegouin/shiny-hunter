@@ -96,12 +96,12 @@ seeded no-repeat walk over a 65,536-frame window. Each emulated frame is
 instant of each call — which in turn shifts `hRandomAdd`/`hRandomSub`
 and, ultimately, the two DV bytes.
 
-Use `shiny-hunt coverage` before a long hunt to scan the entire delay
+Use `shiny-hunt run --continue-after-shiny` to scan the entire delay
 window for a given state/macro pair. It runs the emulator for each
-delay, reports every shiny delay found (ranked by DV quality), and
-suggests the best one to use with `shiny-hunt run --start-delay`. If it
-exhausts the window without finding a shiny, that state/macro combo
-cannot produce one — re-record the macro or create a new checkpoint.
+delay, reports every shiny found live (ranked by DV quality at the
+end), and saves state+trace files for each. If the run exhausts the
+window without finding a shiny, that state/macro combo cannot produce
+one — re-record the macro or create a new checkpoint.
 
 This is exactly the same physical phenomenon that makes manual
 soft-resetting work on real hardware: a human can't press A on the same
@@ -212,79 +212,70 @@ shiny-hunt verify \
 # Plays the macro at 60 fps, then pauses. Close the window to see DVs.
 ```
 
-### 4. Scan for shiny delays (recommended first step)
-
-Before committing to a long hunt, use `coverage` to scan the entire
-65,536-frame delay window and find out which delays (if any) produce a
-shiny for your state/macro combo. This runs the emulator for each delay
-— load state, tick N frames, run macro, read DVs — but skips saving
-state files and traces, making it significantly faster than a full hunt.
+### 4. Hunt
 
 ```bash
-shiny-hunt coverage \
+shiny-hunt run \
   --rom roms/red.gb \
   --state states/red_us_eevee.state \
-  --macro macros/red_us_eevee.events.json
-# Scans all 65,536 delays in parallel across all cores.
-# Reports every shiny delay found, ranked by DV quality (ATK descending).
+  --macro macros/red_us_eevee.events.json \
+  --headless
+# Scans frame delays sequentially across all cores.
+# Stops at the first shiny and saves:
+#   shinies/eevee_us_delay042000.state       — resume with `shiny-hunt resume`
+#   shinies/eevee_us_delay042000.trace.json  — for `shiny-hunt replay`
+```
+
+Use `--continue-after-shiny` to scan the entire delay window and find
+every shiny delay. Each shiny is reported live as it's found, and a
+ranked summary (by ATK DV, highest first) is printed at the end:
+
+```bash
+shiny-hunt run \
+  --rom roms/red.gb \
+  --state states/red_us_eevee.state \
+  --macro macros/red_us_eevee.events.json \
+  --continue-after-shiny --headless
 # Example output:
+#   shiny! EEVEE — delay=42,000 ATK=15 DEF=10 SPD=10 SPC=10 HP=8 (worker 3)
+#   shiny! EEVEE — delay=13,712 ATK=14 DEF=10 SPD=10 SPC=10 HP=0 (worker 1)
+#   ...
 #   found 8 shiny delay(s):
-#     delay=42,000  EEVEE (0x66)  ATK=15 DEF=10 SPD=10 SPC=10 HP=8  <<< best
-#     delay=13,712  EEVEE (0x66)  ATK=14 DEF=10 SPD=10 SPC=10 HP=0
+#     delay=42,000  EEVEE  ATK=15 ... HP=8  <<< best
 #     ...
 #   best: delay 42,000 — ATK=15, HP=8
 #   use:  shiny-hunt run --start-delay 42000 ...
 ```
 
-If coverage exhausts the window without finding a shiny, that state/macro
-pair cannot produce one — re-record the macro or create a new checkpoint.
-Use `--stop-at-first` to exit as soon as the first shiny delay is found.
-
-### 5. Hunt
-
-With a known shiny delay from coverage, use `--start-delay` to jump
-straight to it. The emulator runs the full simulation so it can save
-the resulting state file and SRAM for you to resume from.
+Once you know the best delay, use `--start-delay` to jump straight to it:
 
 ```bash
 shiny-hunt run \
   --rom roms/red.gb \
   --state states/red_us_eevee.state \
   --macro macros/red_us_eevee.events.json \
-  --start-delay 42000 \
-  --headless
+  --start-delay 42000 --headless
 # Hits the shiny on the first attempt.
-# Writes:
-#   shinies/eevee_us_000001.state       — resume with `shiny-hunt resume`
-#   shinies/eevee_us_000001.trace.json  — for `shiny-hunt replay`
 ```
 
-You can also run without `--start-delay` to sweep through delays from a
-random starting point — this works but may take a while before landing
-on a shiny delay:
-
-```bash
-shiny-hunt run \
-  --rom roms/red.gb \
-  --state states/red_us_eevee.state \
-  --macro macros/red_us_eevee.events.json \
-  --headless
-```
+If the run exhausts the entire delay window without finding a shiny, that
+state/macro pair cannot produce one — re-record the macro or create a new
+checkpoint.
 
 Other useful flags:
 
 | Flag | Description |
 |------|-------------|
-| `--start-delay N` | Start at this specific frame delay (e.g. from `coverage` output) |
+| `--start-delay N` | Start at a specific frame delay (e.g. from a previous `--continue-after-shiny` run) |
+| `--continue-after-shiny` | Scan the full window; report all shinies with ranked DV summary |
 | `--seed N` | Deterministic master RNG seed (default: `time_ns()`) |
 | `--max-attempts N` | Hard cap on resets (default: 100,000) |
 | `--workers N` | Parallel worker count (default: cpu_count - 1; use 1 for single-threaded) |
 | `--delay-window N` | Number of no-repeat frame delays to search (default: 65,536) |
 | `--window` | Show a PyBoy window instead of running headless |
-| `--continue-after-shiny` | Keep hunting after the first shiny |
 | `--out DIR` | Output directory for `.state` + `.trace.json` (default: `shinies/`) |
 
-### 6. Replay a found shiny
+### 5. Replay a found shiny
 
 The trace pins ROM SHA-1, state SHA-1, master seed, and attempt index. With
 the same ROM, state, and macro, the run is deterministic:
@@ -296,7 +287,7 @@ shiny-hunt replay \
   --trace shinies/eevee_us_000042.trace.json
 ```
 
-### 8. Resume a found shiny
+### 6. Resume a found shiny
 
 ```bash
 shiny-hunt resume --rom roms/red.gb --state shinies/eevee_us_004200.state
@@ -317,6 +308,7 @@ src/shiny_hunter/
   config.py          GameConfig + ROM-hash registry
   polling.py         early-exit species polling (run_until_species)
   workers.py         parallel hunt workers (multiprocessing)
+  delays.py          frame-delay scheduling (seed_offset)
   trace.py           per-attempt JSON traces (schema v2)
   progress.py        rich Live counter
   games/             per-(game, region) configs (red_us, red_jp, blue_us, ...)

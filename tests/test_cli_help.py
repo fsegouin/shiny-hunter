@@ -24,10 +24,6 @@ EXPECTED_OPTIONS: dict[str, set[str]] = {
         "--headless/--window", "--continue-after-shiny", "--workers", "--delay-window",
         "--start-delay",
     },
-    "coverage": {
-        "--rom", "--state", "--macro", "--game", "--region",
-        "--delay-window", "--full/--stop-at-first", "--workers",
-    },
     "replay": {"--trace", "--rom", "--macro"},
     "resume": {"--rom", "--state"},
     "record": {"--rom", "--from-state", "--out", "--max-frames", "--game", "--region"},
