@@ -380,12 +380,7 @@ export default function SpikePage() {
           ref={canvasRef}
           width={160}
           height={144}
-          style={{
-            display: 'block',
-            width: '100%',
-            height: '100%',
-            imageRendering: 'pixelated',
-          }}
+          className="emu-canvas"
         />
         {mode === 'windowed' && emu && <Gamepad emu={emu} />}
       </div>

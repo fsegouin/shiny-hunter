@@ -23,7 +23,7 @@
   position: absolute;
   bottom: 6%;
   left: 4%;
-  width: 32%;
+  width: min(32%, 140px);
   aspect-ratio: 1;
   background: transparent;
   touch-action: none;
@@ -64,7 +64,7 @@
 }
 
 .gp-btn-a, .gp-btn-b {
-  width: 18%;
+  width: min(18%, 80px);
   aspect-ratio: 1;
   border-radius: 50%;
   font-size: 22px;
@@ -75,8 +75,8 @@
 .gp-btn-b { bottom:  6%; right: 22%; }
 
 .gp-btn-start, .gp-btn-select {
-  width: 16%;
-  height: 7%;
+  width: min(16%, 72px);
+  height: min(7%, 32px);
   border-radius: 999px;
   font-size: 10px;
   letter-spacing: 0.05em;

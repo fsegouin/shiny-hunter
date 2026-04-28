@@ -42,3 +42,10 @@ input[type="file"] { color: inherit; }
 .muted { color: #888; }
 .ok { color: #6c6; }
 .err { color: #d66; }
+
+.emu-canvas {
+  display: block !important;
+  width: 100% !important;
+  height: 100% !important;
+  image-rendering: pixelated;
+}
