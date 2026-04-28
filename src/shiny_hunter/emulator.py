@@ -7,6 +7,8 @@ the PyBoy import isolated so tests of pure modules don't pull it in.
 from __future__ import annotations
 
 import io
+import logging
+import warnings
 from pathlib import Path
 
 
@@ -24,7 +26,11 @@ class Emulator:
         from pyboy import PyBoy  # imported lazily
 
         window = "null" if headless else "SDL2"
-        self._pyboy = PyBoy(str(rom_path), window=window, sound_emulated=sound)
+        logging.disable(logging.WARNING)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            self._pyboy = PyBoy(str(rom_path), window=window, sound_emulated=sound)
+        logging.disable(logging.NOTSET)
         self._realtime = realtime
         if headless:
             # null window defaults to unlimited speed already; explicit for clarity.
