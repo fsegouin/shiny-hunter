@@ -90,6 +90,12 @@ class Emulator:
             dest.write(data)
         return data
 
+    def save_state_bytes(self) -> bytes:
+        """Save state and return the raw bytes without writing to disk."""
+        buf = io.BytesIO()
+        self._pyboy.save_state(buf)
+        return buf.getvalue()
+
     def load_state(self, source: Path | bytes | io.IOBase) -> None:
         if isinstance(source, (str, Path)):
             with open(source, "rb") as f:
