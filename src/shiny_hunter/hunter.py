@@ -1,7 +1,6 @@
 """Main shiny-hunting loop: load state -> jitter -> A-press -> read DVs -> repeat."""
 from __future__ import annotations
 
-import random
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -9,11 +8,10 @@ from typing import Callable
 
 from . import macro, pokemon, trace
 from .config import GameConfig
+from .delays import DEFAULT_DELAY_WINDOW, attempt_cap, delay_for_attempt, seed_offset
 from .dv import DVs, is_shiny
 from .emulator import Emulator
 from .polling import run_until_species
-
-JITTER_RANGE = 256  # ≈4 s of frames
 
 
 @dataclass
@@ -36,23 +34,27 @@ def hunt(
     headless: bool = True,
     on_attempt: Callable[[int, int, DVs, bool], None] | None = None,
     stop_on_first_shiny: bool = True,
+    delay_window: int = DEFAULT_DELAY_WINDOW,
 ) -> HuntResult:
     """Run the reset loop until `max_attempts` or the first shiny."""
     out_dir.mkdir(parents=True, exist_ok=True)
-    rng = random.Random(master_seed)
     hunt_macro = macro.load(macro_path)
+    max_attempts = attempt_cap(max_attempts, delay_window)
 
     shinies = 0
     t0 = time.monotonic()
     n = 0
 
     with Emulator(rom_path, headless=headless) as emu:
+        current_delay = seed_offset(master_seed, delay_window)
+        emu.load_state(state_bytes)
+        if current_delay:
+            emu.tick(current_delay)
+
         while n < max_attempts:
             n += 1
-            delay = rng.randint(0, JITTER_RANGE)
-            emu.load_state(state_bytes)
-            if delay:
-                emu.tick(delay)
+            delay = current_delay
+            pre_macro_state = emu.save_state_bytes()
             species, dvs, _ = run_until_species(
                 emu, hunt_macro,
                 species_addr=cfg.party_species_addr,
@@ -79,6 +81,14 @@ def hunt(
                 )
                 if stop_on_first_shiny:
                     break
+
+            if n < max_attempts:
+                current_delay = (current_delay + 1) % delay_window
+                if current_delay == 0:
+                    emu.load_state(state_bytes)
+                else:
+                    emu.load_state(pre_macro_state)
+                    emu.tick(1)
 
     return HuntResult(attempts=n, shinies_found=shinies, elapsed_s=time.monotonic() - t0)
 
@@ -129,17 +139,15 @@ def replay_attempt(
     master_seed: int,
     target_attempt: int,
     headless: bool = True,
+    delay_window: int = DEFAULT_DELAY_WINDOW,
 ) -> tuple[int, DVs]:
     """Re-derive (species, DVs) for a specific attempt index.
 
-    Skips through (target_attempt - 1) RNG draws, then runs one full attempt.
+    Uses the same no-replacement delay schedule as the hunt loop.
     """
     if target_attempt < 1:
         raise ValueError("target_attempt must be >= 1")
-    rng = random.Random(master_seed)
-    for _ in range(target_attempt - 1):
-        rng.randint(0, JITTER_RANGE)
-    delay = rng.randint(0, JITTER_RANGE)
+    delay = delay_for_attempt(master_seed, target_attempt, delay_window)
 
     hunt_macro = macro.load(macro_path)
     with Emulator(rom_path, headless=headless) as emu:

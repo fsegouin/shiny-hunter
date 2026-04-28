@@ -21,7 +21,11 @@ EXPECTED_OPTIONS: dict[str, set[str]] = {
     "run": {
         "--rom", "--state", "--macro", "--game", "--region",
         "--max-attempts", "--seed", "--out",
-        "--headless/--window", "--continue-after-shiny", "--workers",
+        "--headless/--window", "--continue-after-shiny", "--workers", "--delay-window",
+    },
+    "coverage": {
+        "--rom", "--state", "--macro", "--game", "--region",
+        "--delay-window", "--full", "--progress-interval",
     },
     "replay": {"--trace", "--rom", "--macro"},
     "resume": {"--rom", "--state"},

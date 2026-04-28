@@ -7,23 +7,36 @@ from typing import Iterator
 
 from rich.console import Console
 from rich.live import Live
+from rich.progress_bar import ProgressBar
 from rich.table import Table
 
 
 class Progress:
-    def __init__(self) -> None:
+    def __init__(self, *, total_attempts: int | None = None) -> None:
         self._start = time.monotonic()
         self.attempts = 0
         self.shinies = 0
         self.last_dvs: tuple[int, int, int, int] | None = None
         self.last_species: int | None = None
+        self.total_attempts = total_attempts
 
     def render(self) -> Table:
         elapsed = max(time.monotonic() - self._start, 1e-6)
         rate = self.attempts / elapsed
         eta = (8192 / rate) if rate > 0 else float("inf")
         prob = 1 - (8191 / 8192) ** self.attempts if self.attempts > 0 else 0.0
+        total = self.total_attempts if self.total_attempts and self.total_attempts > 0 else None
         table = Table.grid(padding=(0, 2))
+        if total is not None:
+            table.add_row(
+                "progress",
+                ProgressBar(
+                    total=total,
+                    completed=min(self.attempts, total),
+                    width=32,
+                ),
+            )
+            table.add_row("", f"{min(self.attempts, total):,}/{total:,} attempts")
         table.add_row("attempts", f"{self.attempts:,}")
         table.add_row("shinies", str(self.shinies))
         table.add_row("rate", f"{rate:0.1f}/s")
@@ -39,8 +52,13 @@ class Progress:
 
 
 @contextmanager
-def live_progress(console: Console | None = None, refresh_per_second: float = 4) -> Iterator[tuple[Progress, "_Updater"]]:
-    progress = Progress()
+def live_progress(
+    console: Console | None = None,
+    refresh_per_second: float = 4,
+    *,
+    total_attempts: int | None = None,
+) -> Iterator[tuple[Progress, "_Updater"]]:
+    progress = Progress(total_attempts=total_attempts)
     console = console or Console()
     with Live(progress.render(), console=console, refresh_per_second=refresh_per_second) as live:
         yield progress, _Updater(progress, live)

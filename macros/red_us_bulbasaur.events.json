@@ -1,0 +1,47 @@
+{
+  "events": [
+    {
+      "frame": 95,
+      "press": "a"
+    },
+    {
+      "frame": 100,
+      "release": "a"
+    },
+    {
+      "frame": 223,
+      "press": "a"
+    },
+    {
+      "frame": 231,
+      "release": "a"
+    },
+    {
+      "frame": 511,
+      "press": "a"
+    },
+    {
+      "frame": 517,
+      "release": "a"
+    },
+    {
+      "frame": 582,
+      "press": "down"
+    },
+    {
+      "frame": 587,
+      "release": "down"
+    },
+    {
+      "frame": 599,
+      "press": "a"
+    },
+    {
+      "frame": 604,
+      "release": "a"
+    }
+  ],
+  "total_frames": 663,
+  "rom_sha1": "ea9bcae617fdf159b045185467ae58b2e4a48b9a",
+  "from_state": "states/red_us_bulbasaur.state"
+}
