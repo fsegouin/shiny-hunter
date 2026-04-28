@@ -29,7 +29,12 @@ import { cloneState, type WasmBoySaveState } from '../state';
 const BUTTONS = ['A', 'B', 'START', 'SELECT', 'UP', 'DOWN', 'LEFT', 'RIGHT'] as const;
 export type Button = (typeof BUTTONS)[number];
 
-type JoypadState = Record<Lowercase<Button>, boolean>;
+// WasmBoy's setJoypadState expects an object with UPPERCASE keys
+// (UP/DOWN/LEFT/RIGHT/A/B/START/SELECT) — verified against
+// `WasmBoyController.setJoypadState` in dist/wasmboy.wasm.cjs.js. The
+// wrapper used to send lowercase keys, which silently became all-zero
+// because `state.up ? 1 : 0` is always 0. Stick with uppercase.
+type JoypadState = Record<Button, boolean>;
 
 export interface WasmBoyEmulator {
   isReady(): boolean;
@@ -121,10 +126,14 @@ export async function init(opts: InitOptions): Promise<WasmBoyEmulator> {
 
   // Persistent joypad state we mutate via press/release.
   const joypad: JoypadState = {
-    a: false, b: false, start: false, select: false,
-    up: false, down: false, left: false, right: false,
+    A: false, B: false, START: false, SELECT: false,
+    UP: false, DOWN: false, LEFT: false, RIGHT: false,
   };
-  const pushJoypad = () => WasmBoy.setJoypadState(joypad);
+  // setJoypadState expects an `Partial<Record<lowercase, boolean>>` per
+  // its TypeScript declaration but the runtime reads UPPERCASE keys.
+  // Cast through unknown so TS doesn't complain.
+  const pushJoypad = () =>
+    WasmBoy.setJoypadState(joypad as unknown as Parameters<typeof WasmBoy.setJoypadState>[0]);
 
   const tick = async (frames: number) => {
     for (let i = 0; i < frames; i++) {
@@ -162,8 +171,7 @@ export async function init(opts: InitOptions): Promise<WasmBoyEmulator> {
   };
 
   const setButton = (button: Button, pressed: boolean) => {
-    const key = button.toLowerCase() as Lowercase<Button>;
-    joypad[key] = pressed;
+    joypad[button] = pressed;
     pushJoypad();
   };
 
