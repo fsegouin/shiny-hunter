@@ -48,6 +48,10 @@ export interface WasmBoyEmulator {
   releaseButton(button: Button): void;
   /** Resets joypad to all-released. */
   clearJoypad(): void;
+  /** Resume real-time playback (windowed mode). */
+  play(): Promise<void>;
+  /** Pause real-time playback (windowed mode). */
+  pause(): Promise<void>;
   shutdown(): Promise<void>;
 }
 
@@ -62,38 +66,55 @@ async function loadWasmBoy(): Promise<typeof import('wasmboy')> {
 
 export interface InitOptions {
   rom: Uint8Array;
-  /** When true, audio is muted and the canvas isn't touched. */
-  headless?: boolean;
-  /** Optional canvas to render into; ignored when headless. */
+  /**
+   * 'headless' — no canvas, no audio, frame-stepped manually. Use for the
+   *              hunting loop where we want max throughput.
+   * 'windowed' — canvas-bound, real-time, audio off (still). Use for the
+   *              bootstrap flow where the user plays to a checkpoint.
+   */
+  mode?: 'headless' | 'windowed';
+  /** Required when mode is 'windowed'. */
   canvas?: HTMLCanvasElement;
 }
 
 export async function init(opts: InitOptions): Promise<WasmBoyEmulator> {
   const { WasmBoy } = await loadWasmBoy();
-  const headless = opts.headless ?? true;
+  const mode = opts.mode ?? 'headless';
+  const headless = mode === 'headless';
+
+  if (mode === 'windowed' && !opts.canvas) {
+    throw new Error("init({ mode: 'windowed' }) requires `canvas`");
+  }
 
   await WasmBoy.config(
     {
       headless,
-      isAudioEnabled: !headless,
+      // Audio off in both modes for now; spike doesn't need it and the
+      // mobile audio context handshake adds complexity.
+      isAudioEnabled: false,
       gameboyFrameRate: 60,
-      // We drive frame stepping ourselves, so disable RAF-driven playback.
       disablePauseOnHidden: true,
       enableBootROMIfAvailable: false,
     },
-    headless ? undefined : opts.canvas,
+    opts.canvas,
   );
 
-  // We send joypad state ourselves; the default keyboard listener would
-  // race against `setJoypadState`.
+  // We send joypad state ourselves so the bootstrap UI's on-screen
+  // buttons are the single source of truth (and so the hunter loop's
+  // setJoypadState can't race against a stray keyboard listener).
   WasmBoy.disableDefaultJoypad();
 
   await WasmBoy.loadROM(opts.rom);
 
-  // `play()` starts the run-loop; we immediately pause so we can step
-  // frames manually via `_runWasmExport('executeFrame')`.
-  await WasmBoy.play();
-  await WasmBoy.pause();
+  if (mode === 'windowed') {
+    // Real-time playback; canvas updates via WasmBoy's internal RAF loop.
+    await WasmBoy.play();
+  } else {
+    // Boot the emulator then immediately pause so we can step frames
+    // manually via `_runWasmExport('executeFrame')`.
+    await WasmBoy.play();
+    await WasmBoy.pause();
+  }
 
   // Resolve the GB memory base once. Async — postMessage to the worker.
   const gbMemoryBase = await WasmBoy._getWasmConstant('GAMEBOY_INTERNAL_MEMORY_LOCATION');
@@ -137,7 +158,7 @@ export async function init(opts: InitOptions): Promise<WasmBoyEmulator> {
 
   const dumpSram = async (): Promise<Uint8Array> => {
     const state = await saveState();
-    return new Uint8Array(state.wasmBoyMemory.cartridgeRam);
+    return new Uint8Array(state.wasmboyMemory.cartridgeRam);
   };
 
   const setButton = (button: Button, pressed: boolean) => {
@@ -160,6 +181,8 @@ export async function init(opts: InitOptions): Promise<WasmBoyEmulator> {
       (Object.keys(joypad) as Array<keyof JoypadState>).forEach((k) => (joypad[k] = false));
       pushJoypad();
     },
+    play: () => WasmBoy.play(),
+    pause: () => WasmBoy.pause(),
     shutdown: async () => {
       await WasmBoy.pause();
       await WasmBoy.reset();

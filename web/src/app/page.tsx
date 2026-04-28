@@ -10,6 +10,7 @@ import {
   init as initEmulator,
   type WasmBoyEmulator,
 } from '@/lib/emulator/wasmboy';
+import { Gamepad } from './Gamepad';
 
 function downloadBlob(filename: string, bytes: Uint8Array, mime = 'application/octet-stream') {
   const blob = new Blob([bytes as BlobPart], { type: mime });
@@ -62,21 +63,83 @@ export default function SpikePage() {
     append(cfg ? 'ok' : 'err', `SHA-1: ${sha}${cfg ? ` → ${cfg.game}/${cfg.region}` : ' (unknown)'}`);
   }, []);
 
+  const [mode, setMode] = useState<'idle' | 'headless' | 'windowed'>('idle');
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
   const stepInit = useCallback(async () => {
     if (!romBytes) return append('err', 'load a ROM first');
     setRunning(true);
     try {
       append('info', 'WasmBoy: initializing headless…');
       const t0 = performance.now();
-      const e = await initEmulator({ rom: romBytes, headless: true });
+      if (emu) await emu.shutdown();
+      const e = await initEmulator({ rom: romBytes, mode: 'headless' });
       setEmu(e);
+      setMode('headless');
       append('ok', `WasmBoy ready in ${(performance.now() - t0).toFixed(1)} ms`);
     } catch (err) {
       append('err', `init failed: ${(err as Error).message}`);
     } finally {
       setRunning(false);
     }
-  }, [romBytes]);
+  }, [romBytes, emu]);
+
+  const stepInitWindowed = useCallback(async () => {
+    if (!romBytes) return append('err', 'load a ROM first');
+    if (!canvasRef.current) return append('err', 'canvas not yet mounted');
+    setRunning(true);
+    try {
+      append('info', 'WasmBoy: initializing windowed (real-time)…');
+      const t0 = performance.now();
+      if (emu) await emu.shutdown();
+      const e = await initEmulator({
+        rom: romBytes,
+        mode: 'windowed',
+        canvas: canvasRef.current,
+      });
+      setEmu(e);
+      setMode('windowed');
+      append('ok', `windowed mode ready in ${(performance.now() - t0).toFixed(1)} ms — play to your checkpoint, then click "checkpoint here".`);
+    } catch (err) {
+      append('err', `init failed: ${(err as Error).message}`);
+    } finally {
+      setRunning(false);
+    }
+  }, [romBytes, emu]);
+
+  const captureCheckpointFromPlay = useCallback(async () => {
+    if (!emu) return append('err', 'init in windowed mode first');
+    setRunning(true);
+    try {
+      await emu.pause();
+      const state = await emu.saveState();
+      checkpointRef.current = state;
+      setHasCheckpoint(true);
+      const bytes = serializeState(state);
+      const tag = config ? `${config.game}_${config.region}` : 'wasmboy';
+      downloadBlob(`${tag}_${Date.now()}.wbst`, bytes);
+      append('ok',
+        `checkpoint captured + downloaded (${bytes.byteLength.toLocaleString()} bytes). ` +
+        `Switch to headless mode to start hunting.`,
+      );
+      // Stay paused. User can click "resume" to keep playing if they
+      // want to grab another checkpoint.
+    } catch (err) {
+      append('err', `checkpoint failed: ${(err as Error).message}`);
+    } finally {
+      setRunning(false);
+    }
+  }, [emu, config]);
+
+  const resumePlay = useCallback(async () => {
+    if (!emu) return;
+    try {
+      await emu.play();
+      append('info', 'resumed real-time playback');
+    } catch (err) {
+      append('err', `resume failed: ${(err as Error).message}`);
+    }
+  }, [emu]);
 
   const stepTickBenchmark = useCallback(async () => {
     if (!emu) return append('err', 'init the emulator first');
@@ -281,7 +344,42 @@ export default function SpikePage() {
         )}
       </div>
 
-      <h2>2. Steps</h2>
+      <h2>2. Bootstrap (play to checkpoint)</h2>
+      <p className="muted">
+        WasmBoy state files (.wbst) aren&apos;t interchangeable with PyBoy
+        .state files, so the checkpoint has to be created here. Init
+        windowed, play to the &quot;Do you want this Pokémon?&quot; YES
+        prompt with the on-screen buttons, then click <b>checkpoint here</b>.
+        The .wbst downloads automatically and stays in memory for the
+        macro-replay flow below.
+      </p>
+      <div className="row">
+        <button disabled={!romBytes || running} onClick={stepInitWindowed}>
+          init windowed
+        </button>
+        <button disabled={mode !== 'windowed' || running} onClick={resumePlay}>
+          resume play
+        </button>
+        <button disabled={mode !== 'windowed' || running} onClick={captureCheckpointFromPlay}>
+          checkpoint here (pause + download .wbst)
+        </button>
+      </div>
+      <canvas
+        ref={canvasRef}
+        width={160}
+        height={144}
+        style={{
+          display: mode === 'windowed' ? 'block' : 'none',
+          width: 320, height: 288,
+          imageRendering: 'pixelated',
+          background: '#000',
+          margin: '12px 0',
+          border: '1px solid #333',
+        }}
+      />
+      {mode === 'windowed' && emu && <Gamepad emu={emu} />}
+
+      <h2>3. Steps</h2>
       <div className="row">
         <button disabled={!romBytes || running} onClick={stepInit}>
           init emulator
@@ -303,7 +401,7 @@ export default function SpikePage() {
         </button>
       </div>
 
-      <h2>3. Macro replay (load state → replay → read DVs)</h2>
+      <h2>4. Macro replay (load state → replay → read DVs)</h2>
       <p className="muted">
         Take or upload a checkpoint, upload a `.events.json` recorded by the
         Python `shiny-hunt record` command, then replay. The DVs after

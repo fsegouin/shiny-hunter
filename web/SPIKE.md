@@ -112,8 +112,15 @@ The downloadable `.wbst` is a **WasmBoy-specific** save state in a
 custom binary container (header + four sections, defined in
 `src/lib/state.ts`). It is **not** interchangeable with `.state` files
 produced by the Python `shiny-hunt bootstrap` command — PyBoy and
-WasmBoy don't share an internal layout. For the web app, take the
-checkpoint in-browser via section 3 and download it.
+WasmBoy don't share an internal layout.
+
+To produce a `.wbst`, use **section 2** of the spike page: init
+windowed, play the game with the on-screen Game Boy buttons (touch
+works on iPhone) until the cursor is parked on YES at the
+&quot;Do you want this Pokémon?&quot; prompt, then click
+**checkpoint here**. The `.wbst` is auto-downloaded and held in
+memory so the macro-replay flow in section 4 can load it
+immediately.
 
 ## Running the spike
 

@@ -12,7 +12,10 @@ declare module 'wasmboy' {
   type JoypadState = Partial<Record<Button, boolean>>;
 
   interface SaveState {
-    wasmBoyMemory: {
+    // NOTE: outer key is `wasmboyMemory` (lowercase 'b'), inner keys
+    // use `wasmBoy*` (uppercase 'B'). Verified against the 0.7.1 source
+    // — see `getSaveState` in dist/wasmboy.wasm.cjs.js.
+    wasmboyMemory: {
       wasmBoyInternalState: Uint8Array;
       wasmBoyPaletteMemory: Uint8Array;
       gameBoyMemory: Uint8Array;

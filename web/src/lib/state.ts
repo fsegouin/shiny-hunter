@@ -19,6 +19,11 @@
  * NOTE: this is a WasmBoy-specific format. PyBoy `.state` files from
  * the Python CLI are NOT interchangeable with this — the two emulators
  * have different internal layouts.
+ *
+ * NOTE about WasmBoy's own shape: the outer container key is
+ * `wasmboyMemory` (lowercase 'b'), even though the inner keys use
+ * `wasmBoy*` (uppercase 'B'). Bizarre but verified against the 0.7.1
+ * source (`getSaveState` in dist/wasmboy.wasm.cjs.js).
  */
 
 /**
@@ -29,9 +34,14 @@
  * call. Always work with a copy.
  */
 export function cloneState(state: WasmBoySaveState): WasmBoySaveState {
-  const m = state.wasmBoyMemory;
+  if (!state || !state.wasmboyMemory) {
+    throw new Error(
+      'unexpected save-state shape (no .wasmboyMemory) — WasmBoy version mismatch?',
+    );
+  }
+  const m = state.wasmboyMemory;
   return {
-    wasmBoyMemory: {
+    wasmboyMemory: {
       wasmBoyInternalState: new Uint8Array(m.wasmBoyInternalState),
       wasmBoyPaletteMemory: new Uint8Array(m.wasmBoyPaletteMemory),
       gameBoyMemory: new Uint8Array(m.gameBoyMemory),
@@ -47,7 +57,7 @@ const VERSION = 1;
 const HEADER_SIZE = 32;
 
 export interface WasmBoySaveState {
-  wasmBoyMemory: {
+  wasmboyMemory: {
     wasmBoyInternalState: Uint8Array;
     wasmBoyPaletteMemory: Uint8Array;
     gameBoyMemory: Uint8Array;
@@ -58,7 +68,7 @@ export interface WasmBoySaveState {
 }
 
 export function serializeState(state: WasmBoySaveState): Uint8Array {
-  const m = state.wasmBoyMemory;
+  const m = state.wasmboyMemory;
   const totalSize =
     HEADER_SIZE +
     m.wasmBoyInternalState.byteLength +
@@ -113,7 +123,7 @@ export function deserializeState(bytes: Uint8Array): WasmBoySaveState {
     return out;
   };
   return {
-    wasmBoyMemory: {
+    wasmboyMemory: {
       wasmBoyInternalState: slice(internalLen),
       wasmBoyPaletteMemory: slice(paletteLen),
       gameBoyMemory: slice(gbMemLen),
