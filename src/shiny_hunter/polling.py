@@ -39,8 +39,9 @@ def run_until_species(
         species = emu.read_byte(species_addr)
         if species != 0:
             raw = emu.read_bytes(dv_addr, 2)
-            dvs = decode_dvs(raw[0], raw[1])
-            return species, dvs, frames
+            if raw[0] != 0 or raw[1] != 0:
+                dvs = decode_dvs(raw[0], raw[1])
+                return species, dvs, frames
 
     return 0, decode_dvs(0, 0), frames
 
