@@ -23,9 +23,9 @@ The hunter loop:
 
 1. Loads a PyBoy save-state parked just before the action that triggers
    the DV roll.
-2. Advances a randomized number of frames (`tick(delay)`) drawn from a
-   seeded RNG. PyBoy is fully deterministic, so this *injected* jitter is
-   what diverges DIV/`hRandomAdd`/`hRandomSub` between attempts.
+2. Advances a deterministic no-repeat frame delay from a seeded
+   65,536-frame window. PyBoy is fully deterministic, so this *injected*
+   jitter is what diverges DIV/`hRandomAdd`/`hRandomSub` between attempts.
 3. Runs a user-supplied macro that triggers the DV roll and waits for the
    Pokémon to appear in the party.
 4. Reads the party DV bytes from WRAM. If shiny, runs the in-game SAVE
@@ -89,13 +89,17 @@ same input sequence ⇒ bit-identical output. That includes `rDIV`. So
 without jitter, every soft-reset would re-roll the same DVs forever.
 
 The hunter loop gets variation by inserting `pyboy.tick(delay)` between
-`load_state(...)` and the A-press macro, where `delay ∈ [0, 256)` comes
-from a seeded `random.Random`. Each emulated frame is 70224 CPU cycles,
-during which `rDIV` increments ~274 times. Different `delay` values
-mean `Random` runs with a different `rDIV` at the precise instant of
-each call — which in turn shifts `hRandomAdd`/`hRandomSub` and,
-ultimately, the two DV bytes. Empirically a few hundred frames of
-jitter range covers the full DV space.
+`load_state(...)` and the A-press macro, where `delay` comes from a
+seeded no-repeat walk over a 65,536-frame window. Each emulated frame is
+70224 CPU cycles, during which `rDIV` increments ~274 times. Different
+`delay` values mean `Random` runs with a different `rDIV` at the precise
+instant of each call — which in turn shifts `hRandomAdd`/`hRandomSub`
+and, ultimately, the two DV bytes.
+
+Use `shiny-hunt coverage` before a long hunt to scan the delay window
+for a given state/macro pair. If it exhausts the window without finding
+a shiny delay, more attempts with that same state/macro will just repeat
+non-shiny outcomes.
 
 This is exactly the same physical phenomenon that makes manual
 soft-resetting work on real hardware: a human can't press A on the same
@@ -227,11 +231,25 @@ Other useful flags:
 | `--seed N` | Deterministic master RNG seed (default: `time_ns()`) |
 | `--max-attempts N` | Hard cap on resets (default: 100,000) |
 | `--workers N` | Parallel worker count (default: cpu_count - 1; use 1 for single-threaded) |
+| `--delay-window N` | Number of no-repeat frame delays to search (default: 65,536) |
 | `--window` | Show a PyBoy window instead of running headless |
 | `--continue-after-shiny` | Keep hunting after the first shiny |
 | `--out DIR` | Output directory for `.state` + `.trace.json` (default: `shinies/`) |
 
-### 5. Replay a found shiny
+### 5. Check delay coverage
+
+```bash
+shiny-hunt coverage \
+  --rom roms/red.gb \
+  --state states/red_us_eevee.state \
+  --macro macros/red_us_eevee.events.json
+```
+
+This scans sequential frame delays from the checkpoint and reports the
+first shiny delay, or confirms that none exists in the scanned window.
+Use `--full` to continue after the first shiny and count all shiny delays.
+
+### 6. Replay a found shiny
 
 The trace pins ROM SHA-1, state SHA-1, master seed, and attempt index. With
 the same ROM, state, and macro, the run is deterministic:
@@ -243,7 +261,7 @@ shiny-hunt replay \
   --trace shinies/eevee_us_000042.trace.json
 ```
 
-### 6. Resume a found shiny
+### 7. Resume a found shiny
 
 ```bash
 shiny-hunt resume --rom roms/red.gb --state shinies/eevee_us_004200.state

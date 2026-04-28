@@ -6,10 +6,12 @@ from pathlib import Path
 
 import click
 from rich.console import Console
+from rich.progress import BarColumn, Progress, TextColumn, TaskProgressColumn, TimeElapsedColumn, TimeRemainingColumn
 from rich.table import Table
 
 from . import config as cfg_mod
 from . import hunter, macro, pokemon, recorder, trace
+from .delays import DEFAULT_DELAY_WINDOW, attempt_cap
 from .config import GameConfig
 from .emulator import Emulator
 from .progress import live_progress
@@ -213,6 +215,13 @@ def verify(rom: Path, state_path: Path, macro_path: Path, game: str | None, regi
     default=None,
     help="Number of parallel workers (default: cpu_count - 1). Use 1 for single-threaded.",
 )
+@click.option(
+    "--delay-window",
+    type=int,
+    default=DEFAULT_DELAY_WINDOW,
+    show_default=True,
+    help="Number of no-repeat frame delays to search before declaring the window exhausted.",
+)
 def run(
     rom: Path,
     state_path: Path,
@@ -225,6 +234,7 @@ def run(
     headless: bool,
     continue_after_shiny: bool,
     num_workers: int | None,
+    delay_window: int,
 ) -> None:
     """Hunt for a shiny Pokémon."""
     cfg = _resolve_config(rom, game, region)
@@ -233,11 +243,12 @@ def run(
 
     click.echo(
         f"hunting on {cfg.game}/{cfg.region}, seed={master_seed}, "
-        f"max={max_attempts:,}, headless={headless}"
+        f"max={max_attempts:,}, delay_window={delay_window:,}, headless={headless}"
     )
+    total_attempts = attempt_cap(max_attempts, delay_window)
 
     if num_workers == 1:
-        with live_progress() as (progress, updater):
+        with live_progress(total_attempts=total_attempts) as (progress, updater):
             def on_attempt(n: int, species: int, dvs, shiny: bool) -> None:
                 progress.attempts = n
                 progress.last_dvs = (dvs.atk, dvs.def_, dvs.spd, dvs.spc)
@@ -258,6 +269,7 @@ def run(
                 headless=headless,
                 on_attempt=on_attempt,
                 stop_on_first_shiny=not continue_after_shiny,
+                delay_window=delay_window,
             )
 
         click.echo(
@@ -268,7 +280,7 @@ def run(
         from .workers import hunt_parallel
         from .dv import decode_dvs
 
-        with live_progress() as (progress, updater):
+        with live_progress(total_attempts=total_attempts) as (progress, updater):
             def on_progress(total: int, species: int, shiny_count: int, dvs: tuple) -> None:
                 progress.attempts = total
                 progress.last_species = species
@@ -286,6 +298,7 @@ def run(
                 max_attempts=max_attempts,
                 num_workers=num_workers,
                 on_progress=on_progress,
+                delay_window=delay_window,
             )
 
         click.echo(
@@ -318,6 +331,150 @@ def run(
                 click.echo(f"shiny! {name} (worker {res.worker_id}, attempt {res.attempt})")
                 click.echo(f"  state: {out_dir / state_name}")
                 click.echo(f"  trace: {out_dir / trace_name}")
+
+
+@main.command()
+@click.option(
+    "--rom",
+    required=True,
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="Path to the Game Boy ROM (.gb).",
+)
+@click.option(
+    "--state",
+    "state_path",
+    required=True,
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="Save-state file to test as the pre-DV-roll checkpoint.",
+)
+@click.option(
+    "--macro",
+    "macro_path",
+    required=True,
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="Macro to replay from each frame delay (.yaml or .events.json).",
+)
+@click.option("--game", default=None, help="Force game name; only needed if SHA-1 lookup fails.")
+@click.option("--region", default=None, help="Force region; only needed alongside --game.")
+@click.option(
+    "--delay-window",
+    type=int,
+    default=DEFAULT_DELAY_WINDOW,
+    show_default=True,
+    help="Number of sequential frame delays to scan from this checkpoint.",
+)
+@click.option(
+    "--full",
+    is_flag=True,
+    help="Continue after the first shiny delay to count all shiny delays in the window.",
+)
+@click.option(
+    "--progress-interval",
+    type=int,
+    default=1,
+    show_default=True,
+    help="Update the progress bar after this many scanned frame delays.",
+)
+@click.option(
+    "--workers",
+    "num_workers",
+    type=int,
+    default=None,
+    help="Number of parallel workers (default: cpu_count - 1). Use 1 for single-process scanning.",
+)
+def coverage(
+    rom: Path,
+    state_path: Path,
+    macro_path: Path,
+    game: str | None,
+    region: str | None,
+    delay_window: int,
+    full: bool,
+    progress_interval: int,
+    num_workers: int | None,
+) -> None:
+    """Scan delay coverage and report whether a shiny delay exists."""
+    from .diagnostics import scan_delay_window, scan_delay_window_parallel
+
+    cfg = _resolve_config(rom, game, region)
+    state_bytes = state_path.read_bytes()
+    hunt_macro = macro.load(macro_path)
+
+    if delay_window < DEFAULT_DELAY_WINDOW:
+        click.echo(
+            f"warning: delay window {delay_window:,} is below the 65,536-DV lower bound; "
+            "this is only a partial smoke check, not a full coverage diagnostic",
+            err=True,
+        )
+
+    click.echo(
+        f"scanning {delay_window:,} delays on {cfg.game}/{cfg.region}; "
+        f"{'full scan' if full else 'stopping at first shiny'}"
+    )
+
+    console = Console()
+    progress = Progress(
+        TextColumn("{task.description}"),
+        BarColumn(bar_width=None),
+        TaskProgressColumn(),
+        TextColumn("unique DVs: {task.fields[unique_dv_pairs]:,}"),
+        TextColumn("elapsed: {task.elapsed:0.0f}s"),
+        TimeRemainingColumn(),
+        console=console,
+        transient=True,
+    )
+
+    with progress:
+        task_id = progress.add_task("coverage", total=delay_window, unique_dv_pairs=0)
+
+        def on_progress(scanned: int, unique_dv_pairs: int) -> None:
+            progress.update(task_id, completed=scanned, unique_dv_pairs=unique_dv_pairs)
+
+        if num_workers == 1:
+            with Emulator(rom, headless=True) as emu:
+                emu.load_state(state_bytes)
+                result = scan_delay_window(
+                    emu,
+                    hunt_macro,
+                    species_addr=cfg.party_species_addr,
+                    dv_addr=cfg.party_dv_addr,
+                    delay_window=delay_window,
+                    stop_after_first=not full,
+                    on_progress=on_progress,
+                    progress_interval=progress_interval,
+                )
+        else:
+            result = scan_delay_window_parallel(
+                rom_path=rom,
+                state_bytes=state_bytes,
+                macro_path=macro_path,
+                species_addr=cfg.party_species_addr,
+                dv_addr=cfg.party_dv_addr,
+                delay_window=delay_window,
+                num_workers=num_workers,
+                stop_after_first=not full,
+                on_progress=on_progress,
+            )
+
+    click.echo(
+        f"scanned {result.scanned:,}/{result.delay_window:,} delays; "
+        f"unique DV pairs={result.unique_dv_pairs:,}; "
+        f"unknown species reads={result.unknown_species:,}"
+    )
+    if result.shiny_delays:
+        first = result.shiny_delays[0]
+        click.echo(
+            "shiny delay exists: "
+            f"delay={first.delay}, species=0x{first.species:02X} "
+            f"DVs atk={first.dvs.atk} def={first.dvs.def_} "
+            f"spd={first.dvs.spd} spc={first.dvs.spc}"
+        )
+        if full:
+            click.echo(f"total shiny delays in window: {len(result.shiny_delays):,}")
+    elif result.exhausted:
+        click.echo("no shiny delay exists in this scanned window for this state/macro combo")
+    else:
+        click.echo("no shiny found before scan stopped")
 
 
 @main.command()
