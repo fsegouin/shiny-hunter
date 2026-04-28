@@ -22,11 +22,13 @@ class Progress:
         elapsed = max(time.monotonic() - self._start, 1e-6)
         rate = self.attempts / elapsed
         eta = (8192 / rate) if rate > 0 else float("inf")
+        prob = 1 - (8191 / 8192) ** self.attempts if self.attempts > 0 else 0.0
         table = Table.grid(padding=(0, 2))
         table.add_row("attempts", f"{self.attempts:,}")
         table.add_row("shinies", str(self.shinies))
         table.add_row("rate", f"{rate:0.1f}/s")
         table.add_row("elapsed", f"{elapsed:0.1f}s")
+        table.add_row("cumulative chance", f"{prob:.1%}")
         table.add_row("avg eta (1/8192)", f"{eta:0.0f}s" if eta != float("inf") else "—")
         if self.last_dvs is not None:
             a, d, sp, sc = self.last_dvs
