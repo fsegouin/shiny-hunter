@@ -326,6 +326,32 @@ def replay(trace_path: Path, rom: Path, macro_path: Path) -> None:
     help="Path to the Game Boy ROM (.gb).",
 )
 @click.option(
+    "--state",
+    "state_path",
+    required=True,
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="Save-state to load (.state).",
+)
+def resume(rom: Path, state_path: Path) -> None:
+    """Load a save-state and play in a windowed emulator."""
+    click.echo(f"Resuming from {state_path}")
+    emu = Emulator(rom, headless=False)
+    try:
+        emu.load_state(state_path.read_bytes())
+        while emu.tick(1, render=True):
+            pass
+    finally:
+        emu.stop(save=False)
+
+
+@main.command()
+@click.option(
+    "--rom",
+    required=True,
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="Path to the Game Boy ROM (.gb).",
+)
+@click.option(
     "--from-state",
     "from_state",
     required=True,

@@ -24,6 +24,7 @@ EXPECTED_OPTIONS: dict[str, set[str]] = {
         "--headless/--window", "--continue-after-shiny",
     },
     "replay": {"--trace", "--rom", "--macro"},
+    "resume": {"--rom", "--state"},
     "record": {"--rom", "--from-state", "--out", "--max-frames", "--game", "--region"},
 }
 
