@@ -466,7 +466,7 @@ def resume(rom: Path, state_path: Path) -> None:
         while emu.tick(1, render=True):
             pass
     finally:
-        emu.stop(save=False)
+        emu.stop(save=True)
 
 
 @main.command()
