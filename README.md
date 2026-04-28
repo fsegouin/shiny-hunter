@@ -21,12 +21,13 @@ Odds: ~1 / 8192 per roll.
 
 The hunter loop:
 
-1. Loads a PyBoy save-state parked one frame before the A-press that triggers
-   the DV roll (the "Do you want this Pokémon?" → YES prompt).
+1. Loads a PyBoy save-state parked just before the action that triggers
+   the DV roll.
 2. Advances a randomized number of frames (`tick(delay)`) drawn from a
    seeded RNG. PyBoy is fully deterministic, so this *injected* jitter is
    what diverges DIV/`hRandomAdd`/`hRandomSub` between attempts.
-3. Runs a per-region macro: A → "YES" → settle until party is formed.
+3. Runs a user-supplied macro that triggers the DV roll and waits for the
+   Pokémon to appear in the party.
 4. Reads the party DV bytes from WRAM. If shiny, runs the in-game SAVE
    macro to commit to SRAM, dumps the SRAM, and writes a `.trace.json`
    sidecar so the run can be replayed exactly.
@@ -63,7 +64,7 @@ values and produce different results.
 
 ### How DVs are rolled
 
-When you accept a starter from Oak, the game eventually runs `AddPartyMon`,
+When a Pokémon is added to the party, the game runs `AddPartyMon`,
 which calls `Random` **twice** to fill the two DV bytes (see
 [`engine/pokemon/add_mon.asm`](https://github.com/pret/pokered/blob/master/engine/pokemon/add_mon.asm)):
 
@@ -148,32 +149,35 @@ language/region, drop a new file in `src/shiny_hunter/games/` mirroring
 ## Onboarding flow
 
 Three steps: checkpoint, record, hunt. Works for any Pokémon whose DV roll
-you can park in front of (starters, gifts, wild encounters, etc.).
+you can park in front of — starters, gifts (Eevee, Lapras, Hitmonlee/chan),
+legendaries, or any static encounter.
 
 ### 1. Create a save-state checkpoint
 
-Play in a windowed emulator to the frame just before the DV roll, then close
-the window. For starters this is the "Do you want this Pokémon?" YES prompt.
+Play in a windowed emulator to just before the action that triggers the DV
+roll, then close the window.
 
 ```bash
-shiny-hunt bootstrap --rom roms/red.gb --starter bulbasaur
-# PyBoy window opens. Play to the prompt. Close the window.
-# State saved to states/red_us_bulbasaur.state
+shiny-hunt bootstrap \
+  --rom roms/red.gb \
+  --out states/red_us_eevee.state
+# PyBoy window opens. Play to just before the DV roll.
+# Close the window — state is saved.
 ```
 
 ### 2. Record a macro
 
-Record the button sequence that triggers the DV roll (e.g., pressing A to
-confirm, advancing dialog until the party is formed). The macro is a
-frame-indexed JSON log of press/release events.
+Record the button sequence that triggers the DV roll and waits for the
+Pokémon to appear in the party. The macro is a frame-indexed JSON log of
+press/release events.
 
 ```bash
 shiny-hunt record \
   --rom roms/red.gb \
-  --from-state states/red_us_bulbasaur.state \
-  --out macros/red_us_bulbasaur.events.json
+  --from-state states/red_us_eevee.state \
+  --out macros/red_us_eevee.events.json
 # PyBoy window opens with the checkpoint loaded.
-# Press the buttons to confirm the starter and advance dialog.
+# Press the buttons to trigger the encounter and advance dialog.
 # Close the window when done — the JSON is written.
 ```
 
@@ -184,8 +188,8 @@ Check that the macro lands in a state where the Pokémon's DVs are readable.
 ```bash
 shiny-hunt verify \
   --rom roms/red.gb \
-  --state states/red_us_bulbasaur.state \
-  --macro macros/red_us_bulbasaur.events.json
+  --state states/red_us_eevee.state \
+  --macro macros/red_us_eevee.events.json
 # Prints species + DVs. If species is "unknown", the macro stopped too
 # early — re-record with more frames after the last button press.
 ```
@@ -196,8 +200,8 @@ game state before the DV check:
 ```bash
 shiny-hunt verify \
   --rom roms/red.gb \
-  --state states/red_us_bulbasaur.state \
-  --macro macros/red_us_bulbasaur.events.json \
+  --state states/red_us_eevee.state \
+  --macro macros/red_us_eevee.events.json \
   --window
 # Plays the macro at 60 fps, then pauses. Close the window to see DVs.
 ```
@@ -207,12 +211,12 @@ shiny-hunt verify \
 ```bash
 shiny-hunt run \
   --rom roms/red.gb \
-  --state states/red_us_bulbasaur.state \
-  --macro macros/red_us_bulbasaur.events.json \
+  --state states/red_us_eevee.state \
+  --macro macros/red_us_eevee.events.json \
   --headless
 # When a shiny is found, writes:
-#   shinies/bulbasaur_us_<NNNNNN>.sav        — battery save (Time-Capsule-able)
-#   shinies/bulbasaur_us_<NNNNNN>.trace.json — for `shiny-hunt replay`
+#   shinies/eevee_us_<NNNNNN>.sav        — battery save (Time-Capsule-able)
+#   shinies/eevee_us_<NNNNNN>.trace.json — for `shiny-hunt replay`
 ```
 
 Other useful flags:
@@ -233,8 +237,8 @@ the same ROM, state, and macro, the run is deterministic:
 ```bash
 shiny-hunt replay \
   --rom roms/red.gb \
-  --macro macros/red_us_bulbasaur.events.json \
-  --trace shinies/bulbasaur_us_000042.trace.json
+  --macro macros/red_us_eevee.events.json \
+  --trace shinies/eevee_us_000042.trace.json
 ```
 
 ## Project layout

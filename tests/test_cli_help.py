@@ -16,7 +16,7 @@ from shiny_hunter.cli import main
 # without help= as just the flag).
 EXPECTED_OPTIONS: dict[str, set[str]] = {
     "list-games": set(),
-    "bootstrap": {"--rom", "--starter", "--game", "--region"},
+    "bootstrap": {"--rom", "--out"},
     "verify": {"--rom", "--state", "--macro", "--game", "--region", "--window"},
     "run": {
         "--rom", "--state", "--macro", "--game", "--region",

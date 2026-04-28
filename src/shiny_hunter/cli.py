@@ -39,10 +39,6 @@ def _resolve_config(rom: Path, game: str | None, region: str | None) -> GameConf
     return found
 
 
-def _state_path(cfg: GameConfig, starter: str) -> Path:
-    return Path("states") / f"{cfg.game}_{cfg.region}_{starter}.state"
-
-
 @click.group()
 def main() -> None:
     """Automatic Gen 1 shiny hunter."""
@@ -70,34 +66,17 @@ def list_games() -> None:
     help="Path to the Game Boy ROM (.gb). Region is auto-detected from the SHA-1.",
 )
 @click.option(
-    "--starter",
+    "--out",
     required=True,
-    help="Which starter the bootstrap state is parked at (e.g. bulbasaur, charmander, squirtle, pikachu).",
+    type=click.Path(dir_okay=False, path_type=Path),
+    help="Where to write the save-state file (e.g. states/red_us_eevee.state).",
 )
-@click.option(
-    "--game",
-    default=None,
-    help="Force a game name (red|blue|green|yellow). Only needed when ROM SHA-1 lookup fails.",
-)
-@click.option(
-    "--region",
-    default=None,
-    help="Force a region (us|jp|eu|de|fr|it|es). Only needed alongside --game.",
-)
-def bootstrap(rom: Path, starter: str, game: str | None, region: str | None) -> None:
-    """Open a windowed PyBoy. Play to the 'YES' prompt; close the window to save the state."""
-    cfg = _resolve_config(rom, game, region)
-    if starter not in {s.lower() for s in cfg.starters.values()}:
-        raise click.ClickException(
-            f"starter {starter!r} not valid for {cfg.game}/{cfg.region}; "
-            f"valid: {sorted(cfg.starters.values())}"
-        )
-    state_dir = Path("states")
-    state_dir.mkdir(exist_ok=True)
-    out = _state_path(cfg, starter)
+def bootstrap(rom: Path, out: Path) -> None:
+    """Open a windowed PyBoy. Play to just before the DV roll, then close the window to save."""
+    out.parent.mkdir(parents=True, exist_ok=True)
 
-    click.echo(f"Bootstrap: {cfg.game}/{cfg.region} -> {out}")
-    click.echo("Play to the 'Do you want this Pokémon?' YES prompt, then close the window.")
+    click.echo(f"Bootstrap: {rom} -> {out}")
+    click.echo("Play to just before the DV roll, then close the window.")
     emu = Emulator(rom, headless=False)
     try:
         while emu.tick(1, render=True):
