@@ -42,6 +42,23 @@ declare module 'wasmboy' {
     | 'WASMBOY_INTERNAL_STATE_LOCATION'
     | 'WASMBOY_PALETTE_MEMORY_LOCATION';
 
+  // Bundled ResponsiveGamepad instance. WasmBoy ships its own copy of
+  // `responsive-gamepad`; the singleton you'd get from
+  // `import('responsive-gamepad')` is a SEPARATE instance whose state
+  // isn't polled by WasmBoy. Always use `WasmBoy.ResponsiveGamepad`.
+  interface ResponsiveGamepadApi {
+    enable(): void;
+    disable(): void;
+    getState(): Record<string, boolean | number>;
+    RESPONSIVE_GAMEPAD_INPUTS: Record<string, string>;
+    TouchInput: {
+      enable(): void;
+      disable(): void;
+      addButtonInput(element: HTMLElement, input: string): () => void;
+      addDpadInput(element: HTMLElement, options?: { allowMultipleDirections?: boolean }): () => void;
+    };
+  }
+
   export const WasmBoy: {
     config(options: ConfigOptions, canvas?: HTMLCanvasElement): Promise<void>;
     loadROM(rom: Uint8Array | string | File): Promise<void>;
@@ -66,6 +83,13 @@ declare module 'wasmboy' {
     _runWasmExport(name: 'executeFrame' | string, args: unknown[]): Promise<unknown>;
     _getWasmMemorySection(start: number, end: number): Promise<Uint8Array>;
     _getWasmConstant(name: WasmConstantName): Promise<number>;
+
+    /**
+     * The bundled responsive-gamepad singleton. Use this for touch
+     * input wiring instead of importing `responsive-gamepad` directly,
+     * which gives you a different instance.
+     */
+    ResponsiveGamepad: ResponsiveGamepadApi;
   };
 
   export default WasmBoy;

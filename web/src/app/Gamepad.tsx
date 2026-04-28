@@ -11,15 +11,16 @@ import type { Button as GbButton, WasmBoyEmulator } from '@/lib/emulator/wasmboy
  * WasmBoy reads the joypad state from responsive-gamepad each frame
  * via `enableDefaultJoypad()`.
  *
- * Why not setJoypadState directly: a hand-rolled
- * pointerdown→setJoypadState→pointerup→setJoypadState pipeline races
- * the WasmBoy worker; quick taps can flip the joypad bit twice between
- * GB samplings and the game sees nothing. responsive-gamepad solves
- * this by maintaining persistent state that WasmBoy polls.
+ * IMPORTANT: WasmBoy *bundles* its own copy of responsive-gamepad at
+ * build time. The singleton you'd get from
+ * `import('responsive-gamepad')` is a SEPARATE instance whose state
+ * WasmBoy never polls — registering buttons on that instance is a
+ * silent no-op. We therefore use `emu.responsiveGamepad` (which the
+ * wrapper exposes from `WasmBoy.ResponsiveGamepad`) so the buttons
+ * attach to the same instance WasmBoy reads from.
  *
- * NOTE: the parent must call `enableDefaultJoypad()` on the WasmBoy
- * instance before mounting this component, and disable it again (and
- * fall back to manual setJoypadState) when switching to headless mode.
+ * NOTE: the parent must init in 'windowed' mode (which calls
+ * `enableDefaultJoypad()`) before mounting this component.
  */
 
 const BTN_STYLE: React.CSSProperties = {
@@ -44,31 +45,24 @@ const RG_INPUT_KEY: Record<GbButton, string> = {
 
 function PadButton({
   label,
+  emu,
   button,
   style,
 }: {
   label: string;
+  emu: WasmBoyEmulator;
   button: GbButton;
   style?: React.CSSProperties;
 }) {
   const ref = useRef<HTMLButtonElement | null>(null);
   useEffect(() => {
-    let cancel: (() => void) | undefined;
-    let mounted = true;
-    (async () => {
-      const { ResponsiveGamepad } = await import('responsive-gamepad');
-      if (!mounted || !ref.current) return;
-      const inputKey = RG_INPUT_KEY[button];
-      const inputId = ResponsiveGamepad.RESPONSIVE_GAMEPAD_INPUTS[
-        inputKey as keyof typeof ResponsiveGamepad.RESPONSIVE_GAMEPAD_INPUTS
-      ];
-      cancel = ResponsiveGamepad.TouchInput.addButtonInput(ref.current, inputId);
-    })();
-    return () => {
-      mounted = false;
-      cancel?.();
-    };
-  }, [button]);
+    if (!ref.current) return;
+    const RG = emu.responsiveGamepad;
+    const inputKey = RG_INPUT_KEY[button];
+    const inputId = RG.RESPONSIVE_GAMEPAD_INPUTS[inputKey];
+    const cancel = RG.TouchInput.addButtonInput(ref.current, inputId);
+    return cancel;
+  }, [emu, button]);
   return (
     <button ref={ref} style={{ ...BTN_STYLE, ...style }}>
       {label}
@@ -77,11 +71,6 @@ function PadButton({
 }
 
 export function Gamepad({ emu }: { emu: WasmBoyEmulator }) {
-  // Suppress unused warning: the prop is here so consumers can keep
-  // referencing the active emulator instance, but the gamepad itself
-  // talks to responsive-gamepad via global state and doesn't need
-  // per-button emu plumbing.
-  void emu;
   return (
     <div
       style={{
@@ -102,25 +91,25 @@ export function Gamepad({ emu }: { emu: WasmBoyEmulator }) {
         }}
       >
         <span />
-        <PadButton label="↑" button="UP" />
+        <PadButton label="↑" emu={emu} button="UP" />
         <span />
-        <PadButton label="←" button="LEFT" />
+        <PadButton label="←" emu={emu} button="LEFT" />
         <span />
-        <PadButton label="→" button="RIGHT" />
+        <PadButton label="→" emu={emu} button="RIGHT" />
         <span />
-        <PadButton label="↓" button="DOWN" />
+        <PadButton label="↓" emu={emu} button="DOWN" />
         <span />
       </div>
 
       {/* A/B + Start/Select */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         <div style={{ display: 'flex', gap: 8 }}>
-          <PadButton label="B" button="B" style={{ background: '#421', color: '#fc6' }} />
-          <PadButton label="A" button="A" style={{ background: '#421', color: '#fc6' }} />
+          <PadButton label="B" emu={emu} button="B" style={{ background: '#421', color: '#fc6' }} />
+          <PadButton label="A" emu={emu} button="A" style={{ background: '#421', color: '#fc6' }} />
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <PadButton label="SELECT" button="SELECT" style={{ width: 80, fontSize: 11 }} />
-          <PadButton label="START" button="START" style={{ width: 80, fontSize: 11 }} />
+          <PadButton label="SELECT" emu={emu} button="SELECT" style={{ width: 80, fontSize: 11 }} />
+          <PadButton label="START" emu={emu} button="START" style={{ width: 80, fontSize: 11 }} />
         </div>
       </div>
     </div>

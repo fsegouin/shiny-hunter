@@ -58,7 +58,16 @@ export interface WasmBoyEmulator {
   /** Pause real-time playback (windowed mode). */
   pause(): Promise<void>;
   shutdown(): Promise<void>;
+  /**
+   * The bundled responsive-gamepad instance WasmBoy itself polls. Touch
+   * UI components must use THIS, not a fresh `import('responsive-gamepad')`,
+   * which is a separate singleton whose state WasmBoy never reads.
+   */
+  responsiveGamepad: BundledResponsiveGamepad;
 }
+
+type BundledResponsiveGamepad =
+  (typeof import('wasmboy'))['WasmBoy']['ResponsiveGamepad'];
 
 let wasmBoyModule: typeof import('wasmboy') | null = null;
 
@@ -205,6 +214,7 @@ export async function init(opts: InitOptions): Promise<WasmBoyEmulator> {
       await WasmBoy.pause();
       await WasmBoy.reset();
     },
+    responsiveGamepad: WasmBoy.ResponsiveGamepad,
   };
 }
 
