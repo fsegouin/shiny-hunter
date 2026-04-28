@@ -50,23 +50,24 @@ class Emulator:
         self._pyboy.button_release(key)
 
     def button_is_pressed(self, key: str) -> bool:
-        """Poll SDL2 keyboard state — only works in windowed (SDL2) mode.
+        """Read the Game Boy joypad register to check if a button is pressed.
 
-        Uses virtual key codes (SDLK) so the mapping adapts to the active
-        keyboard layout, matching PyBoy's own key bindings.
+        Reads 0xFF00 directly — reflects PyBoy's internal state after it
+        processes SDL key events during tick(). Works regardless of host
+        keyboard layout.
         """
-        import sdl2
-
-        sdlk = {
-            'up': sdl2.SDLK_UP, 'down': sdl2.SDLK_DOWN,
-            'left': sdl2.SDLK_LEFT, 'right': sdl2.SDLK_RIGHT,
-            'a': sdl2.SDLK_z, 'b': sdl2.SDLK_x,
-            'start': sdl2.SDLK_RETURN, 'select': sdl2.SDLK_BACKSPACE,
-        }.get(key.lower())
-        if sdlk is None:
+        key = key.lower()
+        if key in ('a', 'b', 'select', 'start'):
+            self._pyboy.memory[0xFF00] = 0x10
+            val = self._pyboy.memory[0xFF00]
+            bit = {'a': 0, 'b': 1, 'select': 2, 'start': 3}[key]
+        elif key in ('right', 'left', 'up', 'down'):
+            self._pyboy.memory[0xFF00] = 0x20
+            val = self._pyboy.memory[0xFF00]
+            bit = {'right': 0, 'left': 1, 'up': 2, 'down': 3}[key]
+        else:
             raise ValueError(f"unknown button: {key}")
-        state = sdl2.SDL_GetKeyboardState(None)
-        return bool(state[sdl2.SDL_GetScancodeFromKey(sdlk)])
+        return (val & (1 << bit)) == 0
 
     # ---- memory ----
 

@@ -88,18 +88,11 @@ def bootstrap(rom: Path, out: Path) -> None:
 
 
 def _verify_windowed(cfg: GameConfig, rom: Path, state_path: Path, macro_path: Path):
-    import random
-
     state_bytes = state_path.read_bytes()
-    rng = random.Random(0)
-    delay = rng.randint(0, hunter.JITTER_RANGE)
-
     hunt_macro = macro.load(macro_path)
 
     with Emulator(rom, headless=False, realtime=True) as emu:
         emu.load_state(state_bytes)
-        if delay:
-            emu.tick(delay)
         hunt_macro.run(emu)
         emu.tick(cfg.post_macro_settle_frames)
 
