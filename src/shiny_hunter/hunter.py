@@ -4,7 +4,6 @@ from __future__ import annotations
 import random
 import time
 from dataclasses import dataclass
-from importlib import resources
 from pathlib import Path
 from typing import Callable
 
@@ -22,10 +21,6 @@ class HuntResult:
     attempts: int
     shinies_found: int
     elapsed_s: float
-
-
-def _macro_path(filename: str) -> Path:
-    return Path(str(resources.files("shiny_hunter").joinpath("macros", filename)))
 
 
 def hunt(
@@ -46,7 +41,6 @@ def hunt(
     out_dir.mkdir(parents=True, exist_ok=True)
     rng = random.Random(master_seed)
     hunt_macro = macro.load(macro_path)
-    save_macro = macro.load(_macro_path(cfg.save_macro))
 
     shinies = 0
     t0 = time.monotonic()
@@ -82,7 +76,6 @@ def hunt(
                     delay=delay,
                     species=species,
                     dvs=dvs,
-                    save_macro=save_macro,
                 )
                 if stop_on_first_shiny:
                     break
@@ -103,17 +96,14 @@ def _persist_shiny(
     delay: int,
     species: int,
     dvs: DVs,
-    save_macro: macro.Macro | macro.EventMacro,
 ) -> None:
-    """On shiny: trigger an in-game SAVE, then dump SRAM and write trace."""
+    """On shiny: save emulator state + write trace."""
     name = pokemon.species_name(species)
-    save_macro.run(emu)
-    emu.tick(cfg.post_macro_settle_frames)
-
-    sram = emu.dump_sram(cfg.sram_size)
-    sav_name = f"{name}_{cfg.region}_{attempt:06d}.sav"
+    state_name = f"{name}_{cfg.region}_{attempt:06d}.state"
     trace_name = f"{name}_{cfg.region}_{attempt:06d}.trace.json"
-    (out_dir / sav_name).write_bytes(sram)
+
+    emu.save_state(out_dir / state_name)
+
     trace.write(
         out_dir / trace_name,
         rom_path=rom_path,
