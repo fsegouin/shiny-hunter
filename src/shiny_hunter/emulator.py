@@ -25,12 +25,15 @@ class Emulator:
     ) -> None:
         if headless:
             warnings.filterwarnings("ignore")
-            logging.getLogger("pyboy").setLevel(logging.CRITICAL)
+            logging.disable(logging.CRITICAL)
 
         from pyboy import PyBoy  # imported lazily
 
         window = "null" if headless else "SDL2"
         self._pyboy = PyBoy(str(rom_path), window=window, sound_emulated=sound)
+
+        if headless:
+            logging.disable(logging.NOTSET)
         self._realtime = realtime
         if headless:
             # null window defaults to unlimited speed already; explicit for clarity.
