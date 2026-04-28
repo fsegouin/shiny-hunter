@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import random
 import time
+import warnings
 from dataclasses import dataclass
 from multiprocessing import Process, Queue, Event as MPEvent
 from pathlib import Path
@@ -57,6 +58,7 @@ def _worker_loop(
     stop_event: MPEvent,
     progress_interval: int = 50,
 ) -> None:
+    warnings.filterwarnings("ignore")
     rng = random.Random(master_seed)
     hunt_macro = macro.load(Path(macro_path))
     n = 0

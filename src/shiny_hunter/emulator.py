@@ -7,15 +7,7 @@ the PyBoy import isolated so tests of pure modules don't pull it in.
 from __future__ import annotations
 
 import io
-import warnings
 from pathlib import Path
-
-
-def _silence_pyboy() -> None:
-    """Suppress PyBoy's warnings and custom logging before import."""
-    warnings.filterwarnings("ignore")
-    import pyboy.logging
-    pyboy.logging.log_level("CRITICAL")
 
 
 class Emulator:
@@ -29,9 +21,6 @@ class Emulator:
         sound: bool = False,
         realtime: bool = False,
     ) -> None:
-        if headless:
-            _silence_pyboy()
-
         from pyboy import PyBoy  # imported lazily
 
         window = "null" if headless else "SDL2"
