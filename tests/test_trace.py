@@ -17,7 +17,7 @@ def test_write_and_load_roundtrip(tmp_path: Path):
         state_bytes=state_bytes,
         game="red",
         region="us",
-        starter="bulbasaur",
+        state_path="states/red_us_bulbasaur.state",
         master_seed=12345,
         attempt=42,
         delay=173,
@@ -29,6 +29,7 @@ def test_write_and_load_roundtrip(tmp_path: Path):
     assert loaded == written
     assert loaded.rom_sha1 == trace.sha1_of_file(rom)
     assert loaded.state_sha1 == trace.sha1_of_bytes(state_bytes)
+    assert loaded.state_path == "states/red_us_bulbasaur.state"
     assert loaded.dvs == {"atk": 10, "def": 10, "spd": 10, "spc": 10, "hp": 0}
 
 

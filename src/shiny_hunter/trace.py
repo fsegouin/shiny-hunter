@@ -16,7 +16,7 @@ class Trace:
     state_sha1: str
     game: str
     region: str
-    starter: str
+    state_path: str
     master_seed: int
     attempt: int
     delay: int
@@ -44,7 +44,7 @@ def write(
     state_bytes: bytes,
     game: str,
     region: str,
-    starter: str,
+    state_path: str,
     master_seed: int,
     attempt: int,
     delay: int,
@@ -53,12 +53,12 @@ def write(
     dvs: DVs,
 ) -> Trace:
     trace = Trace(
-        schema=1,
+        schema=2,
         rom_sha1=sha1_of_file(rom_path),
         state_sha1=sha1_of_bytes(state_bytes),
         game=game,
         region=region,
-        starter=starter,
+        state_path=state_path,
         master_seed=master_seed,
         attempt=attempt,
         delay=delay,
@@ -72,4 +72,8 @@ def write(
 
 def load(path: Path) -> Trace:
     raw = json.loads(Path(path).read_text())
+    if raw.get("schema", 1) < 2 and "starter" in raw:
+        starter = raw.pop("starter")
+        raw["state_path"] = f"states/{raw['game']}_{raw['region']}_{starter}.state"
+        raw["schema"] = 2
     return Trace(**raw)

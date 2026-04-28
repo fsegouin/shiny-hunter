@@ -9,7 +9,7 @@ from importlib import resources
 from pathlib import Path
 from typing import Callable
 
-from . import macro, trace
+from . import macro, pokemon, trace
 from .config import GameConfig
 from .dv import DVs, decode_dvs, is_shiny
 from .emulator import Emulator
@@ -38,30 +38,19 @@ def hunt(
     cfg: GameConfig,
     rom_path: Path,
     state_bytes: bytes,
+    state_path: str,
+    macro_path: Path,
     out_dir: Path,
-    starter: str,
     master_seed: int,
     max_attempts: int,
     headless: bool = True,
     on_attempt: Callable[[int, int, DVs, bool], None] | None = None,
     stop_on_first_shiny: bool = True,
 ) -> HuntResult:
-    """Run the reset loop until `max_attempts` or the first shiny.
-
-    Args:
-        cfg: per-(game, region) config.
-        rom_path: path to the user's ROM (used for trace SHA-1 reference).
-        state_bytes: the bootstrap save-state bytes (read once, replayed each attempt).
-        out_dir: where to write `<starter>_<region>_<n>.sav` and `.trace.json`.
-        starter: which starter we expect to receive (used for output filenames).
-        master_seed: seed for the per-attempt jitter RNG.
-        max_attempts: hard upper bound on resets.
-        on_attempt: optional callback `(attempt, species, dvs, shiny)` for progress UIs.
-        stop_on_first_shiny: break the loop after the first shiny found.
-    """
+    """Run the reset loop until `max_attempts` or the first shiny."""
     out_dir.mkdir(parents=True, exist_ok=True)
     rng = random.Random(master_seed)
-    starter_macro = macro.load(_macro_path(cfg.starter_macro))
+    hunt_macro = macro.load(macro_path)
     save_macro = macro.load(_macro_path(cfg.save_macro))
 
     shinies = 0
@@ -75,7 +64,7 @@ def hunt(
             emu.load_state(state_bytes)
             if delay:
                 emu.tick(delay)
-            starter_macro.run(emu)
+            hunt_macro.run(emu)
             emu.tick(cfg.post_macro_settle_frames)
 
             species = emu.read_byte(cfg.party_species_addr)
@@ -91,8 +80,8 @@ def hunt(
                     cfg=cfg,
                     rom_path=rom_path,
                     state_bytes=state_bytes,
+                    state_path=state_path,
                     out_dir=out_dir,
-                    starter=starter,
                     master_seed=master_seed,
                     attempt=n,
                     delay=delay,
@@ -112,8 +101,8 @@ def _persist_shiny(
     cfg: GameConfig,
     rom_path: Path,
     state_bytes: bytes,
+    state_path: str,
     out_dir: Path,
-    starter: str,
     master_seed: int,
     attempt: int,
     delay: int,
@@ -122,15 +111,13 @@ def _persist_shiny(
     save_macro: macro.Macro | macro.EventMacro,
 ) -> None:
     """On shiny: trigger an in-game SAVE, then dump SRAM and write trace."""
-    species_name = cfg.starters.get(species, f"species_0x{species:02X}")
-    # The starter is in WRAM but not yet committed to SRAM. Run the in-game
-    # save macro so the .sav we dump contains the new party member.
+    name = pokemon.species_name(species)
     save_macro.run(emu)
     emu.tick(cfg.post_macro_settle_frames)
 
     sram = emu.dump_sram(cfg.sram_size)
-    sav_name = f"{species_name}_{cfg.region}_{attempt:06d}.sav"
-    trace_name = f"{species_name}_{cfg.region}_{attempt:06d}.trace.json"
+    sav_name = f"{name}_{cfg.region}_{attempt:06d}.sav"
+    trace_name = f"{name}_{cfg.region}_{attempt:06d}.trace.json"
     (out_dir / sav_name).write_bytes(sram)
     trace.write(
         out_dir / trace_name,
@@ -138,12 +125,12 @@ def _persist_shiny(
         state_bytes=state_bytes,
         game=cfg.game,
         region=cfg.region,
-        starter=starter,
+        state_path=state_path,
         master_seed=master_seed,
         attempt=attempt,
         delay=delay,
         species=species,
-        species_name=species_name,
+        species_name=name,
         dvs=dvs,
     )
 
@@ -153,6 +140,7 @@ def replay_attempt(
     cfg: GameConfig,
     rom_path: Path,
     state_bytes: bytes,
+    macro_path: Path,
     master_seed: int,
     target_attempt: int,
     headless: bool = True,
@@ -168,12 +156,12 @@ def replay_attempt(
         rng.randint(0, JITTER_RANGE)
     delay = rng.randint(0, JITTER_RANGE)
 
-    starter_macro = macro.load(_macro_path(cfg.starter_macro))
+    hunt_macro = macro.load(macro_path)
     with Emulator(rom_path, headless=headless) as emu:
         emu.load_state(state_bytes)
         if delay:
             emu.tick(delay)
-        starter_macro.run(emu)
+        hunt_macro.run(emu)
         emu.tick(cfg.post_macro_settle_frames)
         species = emu.read_byte(cfg.party_species_addr)
         dvs = _read_dvs(emu, cfg.party_dv_addr)

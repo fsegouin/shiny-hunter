@@ -17,13 +17,13 @@ from shiny_hunter.cli import main
 EXPECTED_OPTIONS: dict[str, set[str]] = {
     "list-games": set(),
     "bootstrap": {"--rom", "--starter", "--game", "--region"},
-    "verify": {"--rom", "--starter", "--game", "--region"},
+    "verify": {"--rom", "--state", "--macro", "--game", "--region", "--window"},
     "run": {
-        "--rom", "--starter", "--game", "--region",
+        "--rom", "--state", "--macro", "--game", "--region",
         "--max-attempts", "--seed", "--out",
         "--headless/--window", "--continue-after-shiny",
     },
-    "replay": {"--trace", "--rom"},
+    "replay": {"--trace", "--rom", "--macro"},
     "record": {"--rom", "--from-state", "--out", "--max-frames", "--game", "--region"},
 }
 

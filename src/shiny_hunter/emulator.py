@@ -19,11 +19,13 @@ class Emulator:
         *,
         headless: bool = True,
         sound: bool = False,
+        realtime: bool = False,
     ) -> None:
         from pyboy import PyBoy  # imported lazily
 
         window = "null" if headless else "SDL2"
         self._pyboy = PyBoy(str(rom_path), window=window, sound_emulated=sound)
+        self._realtime = realtime
         if headless:
             # null window defaults to unlimited speed already; explicit for clarity.
             self._pyboy.set_emulation_speed(0)
@@ -31,6 +33,11 @@ class Emulator:
     # ---- frame / input ----
 
     def tick(self, frames: int = 1, *, render: bool = False) -> bool:
+        if self._realtime or render:
+            for _ in range(frames):
+                if not self._pyboy.tick(1, True):
+                    return False
+            return True
         return bool(self._pyboy.tick(frames, render))
 
     def button(self, key: str, hold_frames: int = 2) -> None:
@@ -43,7 +50,23 @@ class Emulator:
         self._pyboy.button_release(key)
 
     def button_is_pressed(self, key: str) -> bool:
-        return bool(self._pyboy.button_is_pressed(key))
+        """Poll SDL2 keyboard state — only works in windowed (SDL2) mode.
+
+        Uses virtual key codes (SDLK) so the mapping adapts to the active
+        keyboard layout, matching PyBoy's own key bindings.
+        """
+        import sdl2
+
+        sdlk = {
+            'up': sdl2.SDLK_UP, 'down': sdl2.SDLK_DOWN,
+            'left': sdl2.SDLK_LEFT, 'right': sdl2.SDLK_RIGHT,
+            'a': sdl2.SDLK_z, 'b': sdl2.SDLK_x,
+            'start': sdl2.SDLK_RETURN, 'select': sdl2.SDLK_BACKSPACE,
+        }.get(key.lower())
+        if sdlk is None:
+            raise ValueError(f"unknown button: {key}")
+        state = sdl2.SDL_GetKeyboardState(None)
+        return bool(state[sdl2.SDL_GetScancodeFromKey(sdlk)])
 
     # ---- memory ----
 

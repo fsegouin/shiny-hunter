@@ -9,8 +9,9 @@ from rich.console import Console
 from rich.table import Table
 
 from . import config as cfg_mod
-from . import hunter, recorder, trace
+from . import hunter, macro, pokemon, recorder, trace
 from .config import GameConfig
+from .dv import decode_dvs
 from .emulator import Emulator
 from .progress import live_progress
 from .trace import sha1_of_file
@@ -107,6 +108,33 @@ def bootstrap(rom: Path, starter: str, game: str | None, region: str | None) -> 
         emu.stop(save=False)
 
 
+def _verify_windowed(cfg: GameConfig, rom: Path, state_path: Path, macro_path: Path):
+    import random
+
+    state_bytes = state_path.read_bytes()
+    rng = random.Random(0)
+    delay = rng.randint(0, hunter.JITTER_RANGE)
+
+    hunt_macro = macro.load(macro_path)
+
+    with Emulator(rom, headless=False, realtime=True) as emu:
+        emu.load_state(state_bytes)
+        if delay:
+            emu.tick(delay)
+        hunt_macro.run(emu)
+        emu.tick(cfg.post_macro_settle_frames)
+
+        click.echo("Macro complete — inspect the game state. Close the PyBoy window to continue.")
+        while emu.tick(1, render=True):
+            pass
+
+        species = emu.read_byte(cfg.party_species_addr)
+        raw = emu.read_bytes(cfg.party_dv_addr, 2)
+        dvs = decode_dvs(raw[0], raw[1])
+
+    return species, dvs
+
+
 @main.command()
 @click.option(
     "--rom",
@@ -115,33 +143,45 @@ def bootstrap(rom: Path, starter: str, game: str | None, region: str | None) -> 
     help="Path to the Game Boy ROM (.gb).",
 )
 @click.option(
-    "--starter",
+    "--state",
+    "state_path",
     required=True,
-    help="Which bootstrap save-state to load (e.g. bulbasaur).",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="Save-state file to load (.state).",
+)
+@click.option(
+    "--macro",
+    "macro_path",
+    required=True,
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="Macro to replay (.yaml or .events.json).",
 )
 @click.option("--game", default=None, help="Force game name; only needed if SHA-1 lookup fails.")
 @click.option("--region", default=None, help="Force region; only needed alongside --game.")
-def verify(rom: Path, starter: str, game: str | None, region: str | None) -> None:
-    """Run one attempt against the bootstrap state and print species + DVs."""
+@click.option(
+    "--window",
+    is_flag=True,
+    help="Run windowed in real-time; pause after the macro so you can inspect the game state.",
+)
+def verify(rom: Path, state_path: Path, macro_path: Path, game: str | None, region: str | None, window: bool) -> None:
+    """Run one attempt and print species + DVs."""
     cfg = _resolve_config(rom, game, region)
-    state = _state_path(cfg, starter)
-    if not state.exists():
-        raise click.ClickException(f"no bootstrap state at {state}; run `shiny-hunt bootstrap` first")
 
-    species, dvs = hunter.replay_attempt(
-        cfg=cfg,
-        rom_path=rom,
-        state_bytes=state.read_bytes(),
-        master_seed=0,
-        target_attempt=1,
-        headless=True,
-    )
-    species_name = cfg.starters.get(species, f"unknown(0x{species:02X})")
-    click.echo(f"species: 0x{species:02X} ({species_name})")
+    if window:
+        species, dvs = _verify_windowed(cfg, rom, state_path, macro_path)
+    else:
+        species, dvs = hunter.replay_attempt(
+            cfg=cfg,
+            rom_path=rom,
+            state_bytes=state_path.read_bytes(),
+            macro_path=macro_path,
+            master_seed=0,
+            target_attempt=1,
+            headless=True,
+        )
+    name = pokemon.species_name(species)
+    click.echo(f"species: 0x{species:02X} ({name})")
     click.echo(f"DVs:     atk={dvs.atk} def={dvs.def_} spd={dvs.spd} spc={dvs.spc} hp={dvs.hp}")
-    if species_name not in cfg.starters.values():
-        click.echo("warning: species byte does not match a known starter — increase the macro's "
-                   "final 'after' or recheck the bootstrap checkpoint.", err=True)
 
 
 @main.command()
@@ -152,9 +192,18 @@ def verify(rom: Path, starter: str, game: str | None, region: str | None) -> Non
     help="Path to the Game Boy ROM (.gb).",
 )
 @click.option(
-    "--starter",
+    "--state",
+    "state_path",
     required=True,
-    help="Starter to hunt for; must match a name in this game's registry (e.g. bulbasaur).",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="Save-state file to reload each attempt (.state).",
+)
+@click.option(
+    "--macro",
+    "macro_path",
+    required=True,
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="Macro to replay each attempt (.yaml or .events.json).",
 )
 @click.option("--game", default=None, help="Force game name; only needed if SHA-1 lookup fails.")
 @click.option("--region", default=None, help="Force region; only needed alongside --game.")
@@ -187,7 +236,8 @@ def verify(rom: Path, starter: str, game: str | None, region: str | None) -> Non
 )
 def run(
     rom: Path,
-    starter: str,
+    state_path: Path,
+    macro_path: Path,
     game: str | None,
     region: str | None,
     max_attempts: int,
@@ -196,16 +246,13 @@ def run(
     headless: bool,
     continue_after_shiny: bool,
 ) -> None:
-    """Hunt for a shiny starter."""
+    """Hunt for a shiny Pokémon."""
     cfg = _resolve_config(rom, game, region)
-    state = _state_path(cfg, starter)
-    if not state.exists():
-        raise click.ClickException(f"no bootstrap state at {state}; run `shiny-hunt bootstrap` first")
-    state_bytes = state.read_bytes()
+    state_bytes = state_path.read_bytes()
     master_seed = seed if seed is not None else time.time_ns()
 
     click.echo(
-        f"hunting {starter} on {cfg.game}/{cfg.region}, seed={master_seed}, "
+        f"hunting on {cfg.game}/{cfg.region}, seed={master_seed}, "
         f"max={max_attempts:,}, headless={headless}"
     )
 
@@ -222,8 +269,9 @@ def run(
             cfg=cfg,
             rom_path=rom,
             state_bytes=state_bytes,
+            state_path=str(state_path),
+            macro_path=macro_path,
             out_dir=out_dir,
-            starter=starter,
             master_seed=master_seed,
             max_attempts=max_attempts,
             headless=headless,
@@ -251,7 +299,14 @@ def run(
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
     help="Same ROM that produced the trace; SHA-1 is verified against the trace.",
 )
-def replay(trace_path: Path, rom: Path) -> None:
+@click.option(
+    "--macro",
+    "macro_path",
+    required=True,
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="Same macro used during the hunt (.yaml or .events.json).",
+)
+def replay(trace_path: Path, rom: Path, macro_path: Path) -> None:
     """Reproduce the (species, DVs) of a previously found shiny from its trace."""
     tr = trace.load(trace_path)
     rom_sha = sha1_of_file(rom)
@@ -263,9 +318,9 @@ def replay(trace_path: Path, rom: Path) -> None:
     if cfg is None:
         raise click.ClickException(f"unknown ROM in trace (sha1={tr.rom_sha1})")
 
-    state = _state_path(cfg, tr.starter)
+    state = Path(tr.state_path)
     if not state.exists():
-        raise click.ClickException(f"no bootstrap state at {state}")
+        raise click.ClickException(f"no state file at {state}")
     state_bytes = state.read_bytes()
     if trace.sha1_of_bytes(state_bytes) != tr.state_sha1:
         raise click.ClickException(
@@ -276,6 +331,7 @@ def replay(trace_path: Path, rom: Path) -> None:
         cfg=cfg,
         rom_path=rom,
         state_bytes=state_bytes,
+        macro_path=macro_path,
         master_seed=tr.master_seed,
         target_attempt=tr.attempt,
         headless=True,
