@@ -2,7 +2,7 @@
 
 Automatic Gen 1 shiny hunter for Pokémon Red, Blue, Green (JP), and Yellow.
 Runs PyBoy headlessly, soft-resets the game thousands of times per minute, and
-saves a `.sav` file the moment a Pokémon's DVs satisfy the Gen 2 transfer-shiny
+saves a `.state` file the moment a Pokémon's DVs satisfy the Gen 2 transfer-shiny
 condition. Works for any Pokémon — starters, gifts, wild encounters — as long as
 you can create a save-state checkpoint before the DV roll and a macro that
 triggers it.
@@ -214,9 +214,10 @@ shiny-hunt run \
   --state states/red_us_eevee.state \
   --macro macros/red_us_eevee.events.json \
   --headless
+# Runs on all available cores by default.
 # When a shiny is found, writes:
-#   shinies/eevee_us_<NNNNNN>.sav        — battery save (Time-Capsule-able)
-#   shinies/eevee_us_<NNNNNN>.trace.json — for `shiny-hunt replay`
+#   shinies/eevee_us_<NNNNNN>.state       — resume with `shiny-hunt resume`
+#   shinies/eevee_us_<NNNNNN>.trace.json  — for `shiny-hunt replay`
 ```
 
 Other useful flags:
@@ -225,9 +226,10 @@ Other useful flags:
 |------|-------------|
 | `--seed N` | Deterministic master RNG seed (default: `time_ns()`) |
 | `--max-attempts N` | Hard cap on resets (default: 100,000) |
+| `--workers N` | Parallel worker count (default: cpu_count - 1; use 1 for single-threaded) |
 | `--window` | Show a PyBoy window instead of running headless |
 | `--continue-after-shiny` | Keep hunting after the first shiny |
-| `--out DIR` | Output directory for `.sav` + `.trace.json` (default: `shinies/`) |
+| `--out DIR` | Output directory for `.state` + `.trace.json` (default: `shinies/`) |
 
 ### 5. Replay a found shiny
 
@@ -239,6 +241,13 @@ shiny-hunt replay \
   --rom roms/red.gb \
   --macro macros/red_us_eevee.events.json \
   --trace shinies/eevee_us_000042.trace.json
+```
+
+### 6. Resume a found shiny
+
+```bash
+shiny-hunt resume --rom roms/red.gb --state shinies/eevee_us_004200.state
+# Opens PyBoy windowed. Save in-game, check stats, keep playing.
 ```
 
 ## Project layout
@@ -253,6 +262,8 @@ src/shiny_hunter/
   pokemon.py         Gen 1 internal species index -> name (all 151)
   macro.py           YAML step macros + JSON event-log macros
   config.py          GameConfig + ROM-hash registry
+  polling.py         early-exit species polling (run_until_species)
+  workers.py         parallel hunt workers (multiprocessing)
   trace.py           per-attempt JSON traces (schema v2)
   progress.py        rich Live counter
   games/             per-(game, region) configs (red_us, red_jp, blue_us, ...)
@@ -272,10 +283,10 @@ src/shiny_hunter/
   roll. The "YES" prompt is well before. If a checkpoint mistakenly sits past
   the roll, every attempt returns the same DVs — `verify` (run twice with
   different seeds) catches this immediately.
-- **Output portability.** The `.sav` written when a shiny is found is a real
-  battery-RAM dump and works on any GB/GBC emulator or real hardware via
-  flashcart. The internal save-states (`.state`) are PyBoy-specific and
-  shouldn't be used for transfer.
+- **Output portability.** The `.state` written when a shiny is found is a
+  PyBoy-specific save-state. Use `shiny-hunt resume` to load it, save
+  in-game, then export the `.sav` from PyBoy's save directory for use on
+  other emulators or real hardware via flashcart.
 
 ## License
 

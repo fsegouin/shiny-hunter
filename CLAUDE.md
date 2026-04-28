@@ -23,6 +23,7 @@ shiny-hunt --help              # CLI entry point
 shiny-hunt list-games          # Show registered game configs
 shiny-hunt verify --rom ROM --state STATE --macro MACRO   # Single-attempt verification
 shiny-hunt run --rom ROM --state STATE --macro MACRO      # Hunt until shiny
+shiny-hunt resume --rom ROM --state STATE                 # Load a state and play interactively
 ```
 
 ### Web
