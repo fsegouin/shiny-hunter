@@ -27,6 +27,7 @@ EXPECTED_OPTIONS: dict[str, set[str]] = {
     "replay": {"--trace", "--rom", "--macro"},
     "resume": {"--rom", "--state"},
     "record": {"--rom", "--from-state", "--out", "--max-frames", "--game", "--region"},
+    "preview": {"--rom", "--state", "--crystal-rom", "--crystal-state", "--crystal-macro", "--out", "--window"},
 }
 
 

@@ -1,0 +1,39 @@
+{
+  "events": [
+    {
+      "frame": 112,
+      "press": "a"
+    },
+    {
+      "frame": 118,
+      "release": "a"
+    },
+    {
+      "frame": 194,
+      "press": "down"
+    },
+    {
+      "frame": 199,
+      "release": "down"
+    },
+    {
+      "frame": 258,
+      "press": "a"
+    },
+    {
+      "frame": 265,
+      "release": "a"
+    },
+    {
+      "frame": 478,
+      "press": "a"
+    },
+    {
+      "frame": 485,
+      "release": "a"
+    }
+  ],
+  "total_frames": 636,
+  "rom_sha1": "f2f52230b536214ef7c9924f483392993e226cfb",
+  "from_state": "states/crystal_template.state"
+}
