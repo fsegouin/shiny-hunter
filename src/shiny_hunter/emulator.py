@@ -25,9 +25,7 @@ class Emulator:
     ) -> None:
         if headless:
             warnings.filterwarnings("ignore")
-            logging.getLogger("pyboy").setLevel(logging.ERROR)
-            logging.getLogger("pyboy.api.screen").setLevel(logging.ERROR)
-            logging.getLogger("pyboy.plugins").setLevel(logging.ERROR)
+            logging.getLogger("pyboy").setLevel(logging.CRITICAL)
 
         from pyboy import PyBoy  # imported lazily
 
