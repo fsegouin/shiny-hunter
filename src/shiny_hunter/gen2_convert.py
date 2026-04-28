@@ -94,10 +94,39 @@ def calc_hp(*, base: int, dv: int, stat_exp: int, level: int) -> int:
     return ((base + dv) * 2 + stat_exp_bonus) * level // 100 + level + 10
 
 
+def _effective_level(mon: Gen1Pokemon) -> int:
+    if 1 <= mon.party_level <= 100:
+        return mon.party_level
+    if 1 <= mon.level <= 100:
+        return mon.level
+    raise ValueError(
+        f"invalid Gen 1 level: party_level={mon.party_level}, box_level={mon.level}; "
+        "the save-state may have been captured before the party struct finished updating"
+    )
+
+
+def _converted_current_hp(mon: Gen1Pokemon, max_hp: int) -> int:
+    if mon.current_hp <= 0:
+        return 0
+
+    if mon.max_hp <= 0:
+        return min(mon.current_hp, max_hp)
+
+    missing_hp = max(0, mon.max_hp - min(mon.current_hp, mon.max_hp))
+    return max(1, min(max_hp, max_hp - missing_hp))
+
+
 def convert(mon: Gen1Pokemon) -> Gen2Pokemon:
     pokedex = GEN1_TO_POKEDEX[mon.species]
     held_item = CATCH_RATE_ITEMS.get(mon.catch_rate, mon.catch_rate)
     base = GEN2_BASE_STATS[pokedex]
+    level = _effective_level(mon)
+
+    if level > 1 and mon.experience == 0:
+        raise ValueError(
+            f"invalid Gen 1 experience for level {level}: 0; "
+            "the save-state may have been captured before the party struct finished updating"
+        )
 
     atk_dv = (mon.dvs[0] >> 4) & 0xF
     def_dv = mon.dvs[0] & 0xF
@@ -107,12 +136,13 @@ def convert(mon: Gen1Pokemon) -> Gen2Pokemon:
 
     hp_stat_exp, atk_stat_exp, def_stat_exp, spd_stat_exp, spc_stat_exp = mon.stat_exp
 
-    max_hp = calc_hp(base=base[0], dv=hp_dv, stat_exp=hp_stat_exp, level=mon.level)
-    attack = calc_stat(base=base[1], dv=atk_dv, stat_exp=atk_stat_exp, level=mon.level)
-    defense = calc_stat(base=base[2], dv=def_dv, stat_exp=def_stat_exp, level=mon.level)
-    speed = calc_stat(base=base[3], dv=spd_dv, stat_exp=spd_stat_exp, level=mon.level)
-    sp_attack = calc_stat(base=base[4], dv=spc_dv, stat_exp=spc_stat_exp, level=mon.level)
-    sp_defense = calc_stat(base=base[5], dv=spc_dv, stat_exp=spc_stat_exp, level=mon.level)
+    max_hp = calc_hp(base=base[0], dv=hp_dv, stat_exp=hp_stat_exp, level=level)
+    attack = calc_stat(base=base[1], dv=atk_dv, stat_exp=atk_stat_exp, level=level)
+    defense = calc_stat(base=base[2], dv=def_dv, stat_exp=def_stat_exp, level=level)
+    speed = calc_stat(base=base[3], dv=spd_dv, stat_exp=spd_stat_exp, level=level)
+    sp_attack = calc_stat(base=base[4], dv=spc_dv, stat_exp=spc_stat_exp, level=level)
+    sp_defense = calc_stat(base=base[5], dv=spc_dv, stat_exp=spc_stat_exp, level=level)
+    current_hp = _converted_current_hp(mon, max_hp)
 
     return Gen2Pokemon(
         species=pokedex,
@@ -126,9 +156,9 @@ def convert(mon: Gen1Pokemon) -> Gen2Pokemon:
         friendship=70,
         pokerus=0,
         caught_data=(0, 0),
-        level=mon.level,
+        level=level,
         status=mon.status,
-        current_hp=mon.current_hp,
+        current_hp=current_hp,
         max_hp=max_hp,
         attack=attack,
         defense=defense,

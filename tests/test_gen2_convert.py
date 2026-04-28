@@ -67,11 +67,58 @@ def test_direct_copy_fields():
     assert result.stat_exp == mon.stat_exp
     assert result.dvs == mon.dvs
     assert result.pp == mon.pp
-    assert result.level == mon.level
+    assert result.level == mon.party_level
     assert result.status == mon.status
-    assert result.current_hp == mon.current_hp
     assert result.ot_name == mon.ot_name
     assert result.nickname == mon.nickname
+
+
+def test_current_hp_is_clamped_to_recalculated_max_hp():
+    mon = _make_bulbasaur()
+    result = convert(mon)
+    assert result.max_hp == 19
+    assert result.current_hp == 19
+
+
+def test_current_hp_preserves_missing_hp():
+    mon = Gen1Pokemon(
+        species=0x99, current_hp=10, level=5, status=0, type1=0x16, type2=0x03,
+        catch_rate=45, moves=(0x21, 0x2D, 0, 0), ot_id=1, experience=125,
+        stat_exp=(0, 0, 0, 0, 0), dvs=(0xAA, 0xAA), pp=(35, 40, 0, 0),
+        party_level=5, max_hp=20, attack=11, defense=11, speed=11, special=12,
+        ot_name=b"\x50" + b"\x00" * 10, nickname=b"\x50" + b"\x00" * 10,
+    )
+    result = convert(mon)
+    assert result.max_hp == 19
+    assert result.current_hp == 9
+
+
+def test_party_level_wins_over_box_level():
+    mon = Gen1Pokemon(
+        species=0x99, current_hp=20, level=0, status=0, type1=0x16, type2=0x03,
+        catch_rate=45, moves=(0x21, 0x2D, 0, 0), ot_id=1, experience=125,
+        stat_exp=(0, 0, 0, 0, 0), dvs=(0xAA, 0xAA), pp=(35, 40, 0, 0),
+        party_level=5, max_hp=20, attack=11, defense=11, speed=11, special=12,
+        ot_name=b"\x50" + b"\x00" * 10, nickname=b"\x50" + b"\x00" * 10,
+    )
+    result = convert(mon)
+    assert result.level == 5
+    assert result.max_hp == 19
+
+
+def test_invalid_level_raises_clear_error():
+    mon = Gen1Pokemon(
+        species=0x99, current_hp=0, level=0, status=0, type1=0x16, type2=0x03,
+        catch_rate=45, moves=(0x21, 0x2D, 0, 0), ot_id=1, experience=0,
+        stat_exp=(0, 0, 0, 0, 0), dvs=(0xAA, 0xAA), pp=(35, 40, 0, 0),
+        party_level=0, max_hp=0, attack=0, defense=0, speed=0, special=0,
+        ot_name=b"\x50" + b"\x00" * 10, nickname=b"\x50" + b"\x00" * 10,
+    )
+    try:
+        convert(mon)
+        assert False, "should have raised"
+    except ValueError as exc:
+        assert "invalid Gen 1 level" in str(exc)
 
 
 def test_default_fields():

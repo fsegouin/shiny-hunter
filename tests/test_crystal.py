@@ -62,6 +62,21 @@ def test_inject_sets_party_count():
     assert emu._mem[PARTY_COUNT_ADDR] == 2
 
 
+def test_inject_supports_one_pokemon_template_for_slot_2():
+    emu = _FakeEmu()
+    emu._mem[PARTY_COUNT_ADDR] = 1
+    emu._mem[PARTY_SPECIES_ADDR] = 25
+    emu._mem[PARTY_SPECIES_ADDR + 1] = 0xFF
+
+    mon = _make_gen2_mon()
+    inject_party_slot(emu, mon, slot=1)
+
+    assert emu._mem[PARTY_COUNT_ADDR] == 2
+    assert emu._mem[PARTY_SPECIES_ADDR] == 25
+    assert emu._mem[PARTY_SPECIES_ADDR + 1] == 1
+    assert emu._mem[PARTY_SPECIES_ADDR + 2] == 0xFF
+
+
 def test_inject_writes_species_list():
     emu = _FakeEmu()
     emu._mem[PARTY_COUNT_ADDR] = 1

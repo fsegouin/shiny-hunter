@@ -513,10 +513,13 @@ def record(
     written to --out and replays deterministically against the same
     starting state.
     """
-    cfg = _resolve_config(rom, game, region)
     rom_sha = sha1_of_file(rom)
+    cfg = cfg_mod.by_sha1(rom_sha)
+    if cfg is None and game and region:
+        cfg = cfg_mod.by_key(game, region)
 
-    click.echo(f"Recording on {cfg.game}/{cfg.region}; close the PyBoy window to stop.")
+    label = f"{cfg.game}/{cfg.region}" if cfg else rom.name
+    click.echo(f"Recording on {label}; close the PyBoy window to stop.")
     click.echo(f"  rom        = {rom}")
     click.echo(f"  from_state = {from_state}")
     click.echo(f"  out        = {out_path}")
@@ -543,24 +546,17 @@ def record(
 
 @main.command()
 @click.option(
-    "--trace",
-    "trace_path",
-    required=True,
-    type=click.Path(exists=True, dir_okay=False, path_type=Path),
-    help="Path to the .trace.json sidecar from a found shiny.",
-)
-@click.option(
     "--rom",
     required=True,
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
-    help="Gen 1 ROM (.gb) that produced the trace.",
+    help="Gen 1 ROM (.gb) that produced the shiny.",
 )
 @click.option(
-    "--macro",
-    "macro_path",
+    "--state",
+    "shiny_state",
     required=True,
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
-    help="Gen 1 macro used during the hunt (.yaml or .events.json).",
+    help="Saved .state from the shiny find (party already in RAM).",
 )
 @click.option(
     "--crystal-rom",
@@ -585,32 +581,39 @@ def record(
     "out_path",
     type=click.Path(dir_okay=False, path_type=Path),
     default=None,
-    help="Output PNG path. Defaults to <trace_stem>.png alongside the trace.",
+    help="Output PNG path. Defaults to <state_stem>.png alongside the state.",
+)
+@click.option(
+    "--window",
+    is_flag=True,
+    help="Run Crystal windowed after injection; close the PyBoy window when done debugging.",
 )
 def preview(
-    trace_path: Path,
     rom: Path,
-    macro_path: Path,
+    shiny_state: Path,
     crystal_rom: Path,
     crystal_state: Path,
     crystal_macro: Path,
     out_path: Path | None,
+    window: bool,
 ) -> None:
     """Generate a Crystal screenshot of a shiny found in Gen 1."""
     from .preview import generate_preview
 
     if out_path is None:
-        out_path = trace_path.with_suffix(".png")
+        out_path = shiny_state.with_suffix(".png")
 
-    click.echo(f"Generating preview for {trace_path.name}...")
+    click.echo(f"Generating preview for {shiny_state.name}...")
+    if window:
+        click.echo("Crystal will stay open after the screenshot. Close the PyBoy window to finish.")
     result = generate_preview(
-        trace_path=trace_path,
         gen1_rom=rom,
-        macro_path=macro_path,
+        shiny_state=shiny_state,
         crystal_rom=crystal_rom,
         crystal_state=crystal_state,
         crystal_macro=crystal_macro,
         out_png=out_path,
+        window=window,
     )
     click.echo(f"Preview saved to {result}")
 

@@ -1,4 +1,4 @@
-"""Shiny preview pipeline: replay → convert → inject → screenshot."""
+"""Shiny preview pipeline: load state → read party → convert → inject → screenshot."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -6,82 +6,54 @@ from pathlib import Path
 from PIL import Image
 
 from . import config as cfg_mod
-from . import macro, trace
+from . import macro
 from .crystal import inject_party_slot
-from .delays import seed_offset
 from .emulator import Emulator
 from .gen1_party import read_party_slot
 from .gen2_convert import convert
-from .polling import run_until_species
+from .trace import sha1_of_file
 
 
 def generate_preview(
     *,
-    trace_path: Path,
     gen1_rom: Path,
-    macro_path: Path,
+    shiny_state: Path,
     crystal_rom: Path,
     crystal_state: Path,
     crystal_macro: Path,
     out_png: Path,
+    window: bool = False,
 ) -> Path:
-    tr = trace.load(trace_path)
-    cfg = cfg_mod.by_sha1(tr.rom_sha1)
+    cfg = cfg_mod.by_sha1(sha1_of_file(gen1_rom))
     if cfg is None:
-        raise ValueError(f"unknown ROM in trace (sha1={tr.rom_sha1})")
+        raise ValueError(f"unknown ROM: {gen1_rom}")
 
-    state_path = Path(tr.state_path)
-    state_bytes = state_path.read_bytes()
-
-    gen1_mon = _replay_and_read_party(
-        cfg=cfg,
-        rom_path=gen1_rom,
-        state_bytes=state_bytes,
-        macro_path=macro_path,
-        master_seed=tr.master_seed,
-        target_attempt=tr.attempt,
-    )
+    with Emulator(gen1_rom, headless=True) as emu:
+        emu.load_state(shiny_state.read_bytes())
+        emu.tick(60)
+        gen1_mon = read_party_slot(emu, cfg, slot=0)
 
     gen2_mon = convert(gen1_mon)
 
     crystal_macro_obj = macro.load(crystal_macro)
 
-    with Emulator(crystal_rom, headless=True) as emu:
+    with Emulator(crystal_rom, headless=not window, realtime=window) as emu:
         emu.load_state(crystal_state.read_bytes())
         inject_party_slot(emu, gen2_mon, slot=1)
         crystal_macro_obj.run(emu)
-        emu.tick(60)
+        emu.tick(60, render=True)
         _screenshot(emu, out_png)
+        if window:
+            while emu.tick(1, render=True):
+                pass
 
     return out_png
 
 
-def _replay_and_read_party(
-    *,
-    cfg,
-    rom_path: Path,
-    state_bytes: bytes,
-    macro_path: Path,
-    master_seed: int,
-    target_attempt: int,
-):
-    delay = (seed_offset(master_seed) + target_attempt - 1) % (1 << 16)
-    hunt_macro = macro.load(macro_path)
-
-    with Emulator(rom_path, headless=True) as emu:
-        emu.load_state(state_bytes)
-        if delay:
-            emu.tick(delay)
-        run_until_species(
-            emu, hunt_macro,
-            species_addr=cfg.party_species_addr,
-            dv_addr=cfg.party_dv_addr,
-        )
-        return read_party_slot(emu, cfg, slot=0)
-
-
-def _screenshot(emu: Emulator, out_path: Path) -> None:
+def _screenshot(emu: Emulator, out_path: Path, *, scale: int = 4) -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     screen = emu._pyboy.screen.ndarray
     img = Image.fromarray(screen)
+    if scale > 1:
+        img = img.resize((img.width * scale, img.height * scale), Image.NEAREST)
     img.save(out_path)
