@@ -77,6 +77,13 @@ class Emulator:
     def read_bytes(self, addr: int, length: int) -> bytes:
         return bytes(self._pyboy.memory[addr : addr + length])
 
+    def write_byte(self, addr: int, value: int) -> None:
+        self._pyboy.memory[addr] = value
+
+    def write_bytes(self, addr: int, data: bytes) -> None:
+        for i, b in enumerate(data):
+            self._pyboy.memory[addr + i] = b
+
     # ---- save state ----
 
     def save_state(self, dest: Path | io.IOBase) -> bytes:
