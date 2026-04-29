@@ -13,6 +13,8 @@ CONFIG = GameConfig(
     rom_sha1="d7037c83e1ae5b39bde3c30787637ba1d4c48ce2",
     party_dv_addr=0xD186,
     party_species_addr=0xD164,
+    enemy_dv_addr=0xCFD8,
+    enemy_species_addr=0xCFCC,
     sram_size=0x8000,
     starters={
         0x99: "bulbasaur",
