@@ -1,9 +1,7 @@
-"""Pygame-based monitor grid for parallel shiny hunting."""
+"""Tkinter + PIL monitor grid for parallel shiny hunting."""
 from __future__ import annotations
 
 import math
-
-import numpy as np
 
 from . import pokemon
 from .workers import WorkerFrame
@@ -12,7 +10,7 @@ GB_W, GB_H = 160, 144
 SCALE = 2
 CELL_W = GB_W * SCALE
 CELL_H = GB_H * SCALE
-BAR_H = 28
+BAR_H = 20
 BORDER = 2
 BG_COLOR = (30, 30, 30)
 SHINY_BORDER_COLOR = (0, 220, 80)
@@ -39,33 +37,51 @@ def update_frames(frames: dict[int, WorkerFrame], new: WorkerFrame) -> None:
 
 class MonitorWindow:
     def __init__(self, num_workers: int) -> None:
-        import pygame
-        self._pg = pygame
-        pygame.init()
-        pygame.display.set_caption("shiny-hunter monitor")
+        import tkinter as tk
+        from PIL import Image, ImageDraw, ImageFont, ImageTk
+
+        self._tk = tk
+        self._Image = Image
+        self._ImageDraw = ImageDraw
+        self._ImageTk = ImageTk
 
         self.num_workers = num_workers
         self.cols, self.rows = grid_size(num_workers)
         self.cell_w = CELL_W + BORDER * 2
         self.cell_h = CELL_H + BAR_H + BORDER * 2
-        win_w = self.cols * self.cell_w
-        win_h = self.rows * self.cell_h
-        self._screen = pygame.display.set_mode((win_w, win_h))
-        self._font = pygame.font.SysFont("monospace", 13)
-        self._clock = pygame.time.Clock()
+        self._win_w = self.cols * self.cell_w
+        self._win_h = self.rows * self.cell_h
         self._frames: dict[int, WorkerFrame] = {}
+        self._closed = False
+
+        self._root = tk.Tk()
+        self._root.title("shiny-hunter monitor")
+        self._root.resizable(False, False)
+        self._root.protocol("WM_DELETE_WINDOW", self._on_close)
+
+        self._canvas = tk.Canvas(
+            self._root, width=self._win_w, height=self._win_h,
+            bg="#1e1e1e", highlightthickness=0,
+        )
+        self._canvas.pack()
+
+        self._tk_image: ImageTk.PhotoImage | None = None
+
+        try:
+            self._font = ImageFont.truetype("DejaVuSansMono.ttf", 12)
+        except OSError:
+            self._font = ImageFont.load_default()
 
     def update(self, frame: WorkerFrame) -> None:
         update_frames(self._frames, frame)
 
     def render(self) -> bool:
-        """Draw the grid. Returns False if the user closed the window."""
-        pg = self._pg
-        for event in pg.event.get():
-            if event.type == pg.QUIT:
-                return False
+        """Composite the grid and update the tkinter window. Returns False if closed."""
+        if self._closed:
+            return False
 
-        self._screen.fill(BG_COLOR)
+        img = self._Image.new("RGB", (self._win_w, self._win_h), BG_COLOR)
+        draw = self._ImageDraw.Draw(img)
 
         for worker_id in range(self.num_workers):
             col = worker_id % self.cols
@@ -76,30 +92,37 @@ class MonitorWindow:
             wf = self._frames.get(worker_id)
             if wf is not None:
                 if wf.is_shiny:
-                    pg.draw.rect(self._screen, SHINY_BORDER_COLOR,
-                                 (x, y, self.cell_w, self.cell_h), BORDER)
+                    draw.rectangle(
+                        [x, y, x + self.cell_w - 1, y + self.cell_h - 1],
+                        outline=SHINY_BORDER_COLOR, width=BORDER,
+                    )
 
-                surf = pg.surfarray.make_surface(
-                    np.transpose(wf.screen, (1, 0, 2))
+                screen_img = self._Image.fromarray(wf.screen).resize(
+                    (CELL_W, CELL_H), self._Image.NEAREST,
                 )
-                surf = pg.transform.scale(surf, (CELL_W, CELL_H))
-                self._screen.blit(surf, (x + BORDER, y + BORDER))
+                img.paste(screen_img, (x + BORDER, y + BORDER))
 
                 label = self._label(wf)
                 color = SHINY_TEXT_COLOR if wf.is_shiny else TEXT_COLOR
-                text_surf = self._font.render(label, True, color)
-                self._screen.blit(text_surf, (x + BORDER + 4, y + BORDER + CELL_H + 4))
+                draw.text((x + BORDER + 4, y + BORDER + CELL_H + 4), label, fill=color, font=self._font)
             else:
                 label = f"Worker {worker_id} | waiting..."
-                text_surf = self._font.render(label, True, TEXT_COLOR)
-                self._screen.blit(text_surf, (x + BORDER + 4, y + BORDER + CELL_H + 4))
+                draw.text((x + BORDER + 4, y + BORDER + CELL_H + 4), label, fill=TEXT_COLOR, font=self._font)
 
-        pg.display.flip()
-        self._clock.tick(15)
+        self._tk_image = self._ImageTk.PhotoImage(img)
+        self._canvas.create_image(0, 0, anchor=self._tk.NW, image=self._tk_image)
+
+        self._root.update_idletasks()
+        self._root.update()
         return True
 
     def close(self) -> None:
-        self._pg.quit()
+        if not self._closed:
+            self._closed = True
+            self._root.destroy()
+
+    def _on_close(self) -> None:
+        self._closed = True
 
     @staticmethod
     def _label(wf: WorkerFrame) -> str:
