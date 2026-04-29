@@ -68,6 +68,7 @@ def _worker_loop(
     progress_queue: Queue,
     stop_event: MPEvent,
     stop_after_first: bool,
+    frame_queue: Queue | None = None,
 ) -> None:
     warnings.filterwarnings("ignore")
     hunt_macro = macro.load(Path(macro_path))
@@ -95,6 +96,20 @@ def _worker_loop(
             )
             latest_species = species
             latest_dvs = (dvs.atk, dvs.def_, dvs.spd, dvs.spc)
+
+            if frame_queue is not None:
+                shiny = is_shiny(dvs)
+                try:
+                    screen = emu._pyboy.screen.ndarray[:, :, :3].copy()
+                    frame_queue.put_nowait(WorkerFrame(
+                        worker_id=worker_id,
+                        screen=screen,
+                        species=species,
+                        dvs=latest_dvs,
+                        is_shiny=shiny,
+                    ))
+                except Exception:
+                    pass
 
             now = time.monotonic()
             if now - last_report >= 1.0:
@@ -149,6 +164,7 @@ def hunt_parallel(
     delay_window: int = DEFAULT_DELAY_WINDOW,
     start_delay: int | None = None,
     stop_after_first: bool = True,
+    frame_queue: Queue | None = None,
 ) -> ParallelHuntResult:
     if num_workers is None:
         num_workers = max(1, (os.cpu_count() or 2) - 1)
@@ -183,6 +199,7 @@ def hunt_parallel(
                 progress_queue,
                 stop_event,
                 stop_after_first,
+                frame_queue,
             ),
             daemon=True,
         )
