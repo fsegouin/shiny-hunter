@@ -26,6 +26,8 @@ class GameConfig:
     rom_sha1: str                          # lowercase hex, no separators
     party_dv_addr: int                     # high byte: Atk/Def; addr+1: Spd/Spc
     party_species_addr: int                # wPartySpecies[0]
+    enemy_dv_addr: int                     # wEnemyMonDVs (in-battle)
+    enemy_species_addr: int                # wEnemyMonSpecies (in-battle)
     sram_size: int                         # bytes; Red/Blue MBC3 = 0x8000 (32KB)
     starters: Mapping[int, str]            # species_id -> canonical lowercase name
     starter_macro: str                     # filename under shiny_hunter/macros/

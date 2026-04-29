@@ -40,6 +40,16 @@ def test_party_dv_addr_in_wram_range():
         assert 0xC000 <= c.party_dv_addr <= 0xDFFF
 
 
+def test_enemy_dv_addr_in_wram_range():
+    for c in cfg_mod.all_configs():
+        assert 0xC000 <= c.enemy_dv_addr <= 0xDFFF
+
+
+def test_enemy_species_addr_in_wram_range():
+    for c in cfg_mod.all_configs():
+        assert 0xC000 <= c.enemy_species_addr <= 0xDFFF
+
+
 def test_sram_size_is_bank_aligned():
     for c in cfg_mod.all_configs():
         assert c.sram_size % 0x2000 == 0
