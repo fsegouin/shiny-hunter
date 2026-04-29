@@ -14,6 +14,7 @@ from PIL import Image
 
 TILE_SIZE = 8
 FONT_COLS = 16
+GB_SCREEN_TILES_W = 20  # 160px / 8px per tile
 
 _DATA_DIR = Path(__file__).parent / "data"
 _FONT_PNG = _DATA_DIR / "pokered_font.png"

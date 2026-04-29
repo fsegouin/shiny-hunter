@@ -55,6 +55,7 @@ class MonitorWindow:
         self._root.title("shiny-hunter monitor")
         self._root.resizable(False, False)
         self._root.protocol("WM_DELETE_WINDOW", self._on_close)
+        self._root.bind("<Escape>", lambda _: self._on_close())
 
         self._canvas = tk.Canvas(
             self._root, width=self._win_w, height=self._win_h,
@@ -115,15 +116,24 @@ class MonitorWindow:
 
     @staticmethod
     def _make_textbox(wf: WorkerFrame) -> "Image.Image":
-        from .gbfont import render_textbox
+        from .gbfont import render_textbox, GB_SCREEN_TILES_W
 
         name = pokemon.species_name(wf.species).upper()
         a, d, s, c = wf.dvs
-        lines = [
-            f"W{wf.worker_id} {name}",
-            f"A={a} D={d} S={s} C={c}",
-        ]
+        inner_w = GB_SCREEN_TILES_W - 2
+        dv_line = f"ATK {a:>2} DEF {d:>2} SPD {s:>2} SPC {c:>2}"
+        if len(dv_line) > inner_w:
+            lines = [
+                f"W{wf.worker_id} {name}",
+                f"ATK {a:>2} DEF {d:>2}",
+                f"SPD {s:>2} SPC {c:>2}",
+            ]
+        else:
+            lines = [
+                f"W{wf.worker_id} {name}",
+                dv_line,
+            ]
         if wf.is_shiny:
             lines.append("SHINY!")
-        box = render_textbox(lines)
+        box = render_textbox(lines, width_tiles=GB_SCREEN_TILES_W)
         return box.resize((box.width * SCALE, box.height * SCALE), resample=0)
