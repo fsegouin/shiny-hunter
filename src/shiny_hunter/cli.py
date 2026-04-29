@@ -430,9 +430,10 @@ def run(
 
         hunt_thread = threading.Thread(target=_run_hunt, daemon=True)
         hunt_thread.start()
+        hunt_result_printed = False
 
         try:
-            while hunt_thread.is_alive():
+            while True:
                 while True:
                     try:
                         wf = frame_queue.get_nowait()
@@ -441,19 +442,20 @@ def run(
                     monitor_win.update(wf)
                 if not monitor_win.render():
                     break
+                if not hunt_thread.is_alive() and not hunt_result_printed:
+                    hunt_thread.join(timeout=5)
+                    if hunt_result_holder:
+                        result = hunt_result_holder[0]
+                        click.echo(
+                            f"done: {result.total_attempts:,} attempts, {len(result.shinies)} shiny in "
+                            f"{result.elapsed_s:0.1f}s ({result.total_attempts / max(result.elapsed_s, 1e-6):0.1f}/s)"
+                        )
+                    hunt_result_printed = True
         except KeyboardInterrupt:
             pass
         finally:
             monitor_win.close()
 
-        hunt_thread.join(timeout=10)
-
-        if hunt_result_holder:
-            result = hunt_result_holder[0]
-            click.echo(
-                f"done: {result.total_attempts:,} attempts, {len(result.shinies)} shiny in "
-                f"{result.elapsed_s:0.1f}s ({result.total_attempts / max(result.elapsed_s, 1e-6):0.1f}/s)"
-            )
         return
 
     if num_workers == 1:
