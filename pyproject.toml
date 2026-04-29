@@ -28,7 +28,7 @@ shiny-hunt = "shiny_hunter.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-shiny_hunter = ["macros/*.yaml"]
+shiny_hunter = ["macros/*.yaml", "data/*.png"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -13,10 +13,6 @@ CELL_H = GB_H * SCALE
 BORDER = 2
 BG_COLOR = (30, 30, 30)
 SHINY_BORDER_COLOR = (0, 220, 80)
-TEXT_COLOR = (255, 255, 255)
-SHINY_TEXT_COLOR = (0, 255, 100)
-TEXT_BG = (0, 0, 0, 180)
-FONT_SIZE = 8
 
 
 def grid_size(n: int) -> tuple[int, int]:
@@ -39,7 +35,7 @@ def update_frames(frames: dict[int, WorkerFrame], new: WorkerFrame) -> None:
 class MonitorWindow:
     def __init__(self, num_workers: int) -> None:
         import tkinter as tk
-        from PIL import Image, ImageDraw, ImageFont, ImageTk
+        from PIL import Image, ImageDraw, ImageTk
 
         self._tk = tk
         self._Image = Image
@@ -68,8 +64,6 @@ class MonitorWindow:
 
         self._tk_image: ImageTk.PhotoImage | None = None
 
-        self._font = ImageFont.load_default(size=FONT_SIZE)
-
     def update(self, frame: WorkerFrame) -> None:
         update_frames(self._frames, frame)
 
@@ -79,8 +73,7 @@ class MonitorWindow:
             return False
 
         img = self._Image.new("RGB", (self._win_w, self._win_h), BG_COLOR)
-        overlay = self._Image.new("RGBA", (self._win_w, self._win_h), (0, 0, 0, 0))
-        overlay_draw = self._ImageDraw.Draw(overlay)
+        draw = self._ImageDraw.Draw(img)
 
         for worker_id in range(self.num_workers):
             col = worker_id % self.cols
@@ -95,27 +88,16 @@ class MonitorWindow:
                 )
                 img.paste(screen_img, (x + BORDER, y + BORDER))
 
-                lines = self._overlay_lines(wf)
-                color = SHINY_TEXT_COLOR if wf.is_shiny else TEXT_COLOR
-                tx = x + BORDER + 4
-                ty = y + BORDER + 4
-                for line in lines:
-                    bbox = self._font.getbbox(line)
-                    tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
-                    overlay_draw.rectangle(
-                        [tx - 1, ty - 1, tx + tw + 1, ty + th + 1],
-                        fill=TEXT_BG,
-                    )
-                    overlay_draw.text((tx, ty), line, fill=color, font=self._font)
-                    ty += th + 3
+                textbox = self._make_textbox(wf)
+                textbox_rgb = self._Image.merge("RGB", (textbox, textbox, textbox))
+                img.paste(textbox_rgb, (x + BORDER, y + BORDER))
 
                 if wf.is_shiny:
-                    overlay_draw.rectangle(
+                    draw.rectangle(
                         [x, y, x + self.cell_w - 1, y + self.cell_h - 1],
                         outline=SHINY_BORDER_COLOR, width=BORDER,
                     )
 
-        img = self._Image.alpha_composite(img.convert("RGBA"), overlay)
         self._tk_image = self._ImageTk.PhotoImage(img)
         self._canvas.create_image(0, 0, anchor=self._tk.NW, image=self._tk_image)
 
@@ -132,14 +114,16 @@ class MonitorWindow:
         self._closed = True
 
     @staticmethod
-    def _overlay_lines(wf: WorkerFrame) -> list[str]:
-        name = pokemon.species_name(wf.species)
+    def _make_textbox(wf: WorkerFrame) -> "Image.Image":
+        from .gbfont import render_textbox
+
+        name = pokemon.species_name(wf.species).upper()
         a, d, s, c = wf.dvs
-        shiny = "SHINY!" if wf.is_shiny else ""
         lines = [
             f"W{wf.worker_id} {name}",
             f"A={a} D={d} S={s} C={c}",
         ]
-        if shiny:
-            lines.append(shiny)
-        return lines
+        if wf.is_shiny:
+            lines.append("SHINY!")
+        box = render_textbox(lines)
+        return box.resize((box.width * SCALE, box.height * SCALE), resample=0)
