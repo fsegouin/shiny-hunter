@@ -261,6 +261,11 @@ def _make_preview_callback(
     help="Run without a visible PyBoy window (fastest), or show one for debugging.",
 )
 @click.option(
+    "--monitor",
+    is_flag=True,
+    help="Show a live tkinter grid of all worker screens with DV overlay.",
+)
+@click.option(
     "--continue-after-shiny",
     is_flag=True,
     help="Keep hunting after the first shiny is found (default: stop).",
@@ -320,6 +325,7 @@ def run(
     seed: int | None,
     out_dir: Path,
     headless: bool,
+    monitor: bool,
     continue_after_shiny: bool,
     num_workers: int | None,
     delay_window: int,
@@ -331,6 +337,10 @@ def run(
 ) -> None:
     """Hunt for a shiny Pokémon."""
     cfg = _resolve_config(rom, game, region)
+
+    if monitor and not headless:
+        raise click.ClickException("--monitor cannot be combined with --window")
+
     state_bytes = state_path.read_bytes()
     master_seed = seed if seed is not None else time.time_ns()
 
@@ -352,6 +362,99 @@ def run(
     if start_delay is not None:
         parts.append(f"start_delay={start_delay:,}")
     click.echo(", ".join(parts))
+
+    if monitor:
+        from multiprocessing import Queue as MPQueue
+        from .monitor import MonitorWindow
+        from .workers import hunt_parallel, WorkerFrame
+        from .dv import decode_dvs
+        from queue import Empty
+        import threading
+
+        frame_queue: MPQueue = MPQueue()
+
+        actual_workers = num_workers if num_workers is not None else max(1, (os.cpu_count() or 2) - 1)
+        if actual_workers < 1:
+            actual_workers = 1
+
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        monitor_win = MonitorWindow(actual_workers)
+
+        hunt_result_holder: list = []
+
+        def _run_hunt() -> None:
+            def on_shiny(res) -> None:
+                name = pokemon.species_name(res.species)
+                dvs = decode_dvs(res.dvs_raw[0], res.dvs_raw[1])
+                state_name = f"{name}_{cfg.region}_{res.delay:06d}.state"
+                trace_name = f"{name}_{cfg.region}_{res.delay:06d}.trace.json"
+                (out_dir / state_name).write_bytes(res.state_bytes)
+                trace.write(
+                    out_dir / trace_name,
+                    rom_path=rom,
+                    state_bytes=state_bytes,
+                    game=cfg.game,
+                    region=cfg.region,
+                    state_path=str(state_path),
+                    master_seed=res.master_seed,
+                    attempt=res.attempt,
+                    delay=res.delay,
+                    species=res.species,
+                    species_name=name,
+                    dvs=dvs,
+                )
+                click.echo(
+                    f"shiny! {name} — delay={res.delay:,} "
+                    f"ATK={dvs.atk} DEF={dvs.def_} SPD={dvs.spd} SPC={dvs.spc} HP={dvs.hp}"
+                )
+                if preview_cb is not None:
+                    preview_cb(out_dir / state_name)
+
+            result = hunt_parallel(
+                rom_path=rom,
+                state_bytes=state_bytes,
+                macro_path=macro_path,
+                species_addr=species_addr,
+                dv_addr=dv_addr,
+                master_seed=master_seed,
+                max_attempts=max_attempts,
+                num_workers=num_workers,
+                on_shiny=on_shiny,
+                delay_window=delay_window,
+                start_delay=start_delay,
+                stop_after_first=not continue_after_shiny,
+                frame_queue=frame_queue,
+            )
+            hunt_result_holder.append(result)
+
+        hunt_thread = threading.Thread(target=_run_hunt, daemon=True)
+        hunt_thread.start()
+
+        try:
+            while hunt_thread.is_alive():
+                while True:
+                    try:
+                        wf = frame_queue.get_nowait()
+                    except Empty:
+                        break
+                    monitor_win.update(wf)
+                if not monitor_win.render():
+                    break
+        except KeyboardInterrupt:
+            pass
+        finally:
+            monitor_win.close()
+
+        hunt_thread.join(timeout=10)
+
+        if hunt_result_holder:
+            result = hunt_result_holder[0]
+            click.echo(
+                f"done: {result.total_attempts:,} attempts, {len(result.shinies)} shiny in "
+                f"{result.elapsed_s:0.1f}s ({result.total_attempts / max(result.elapsed_s, 1e-6):0.1f}/s)"
+            )
+        return
 
     if num_workers == 1:
         with live_progress(total_attempts=total_attempts) as (progress, updater):
