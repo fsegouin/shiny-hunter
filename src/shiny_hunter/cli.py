@@ -286,6 +286,13 @@ def _make_preview_callback(
     help="Start scanning from this specific frame delay (e.g. from a previous --continue-after-shiny run).",
 )
 @click.option(
+    "--mode",
+    type=click.Choice(["starter", "static"]),
+    default="starter",
+    show_default=True,
+    help="Hunt mode: 'starter' reads party DVs, 'static' reads enemy battle DVs.",
+)
+@click.option(
     "--crystal-rom",
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
     default=None,
@@ -317,6 +324,7 @@ def run(
     num_workers: int | None,
     delay_window: int,
     start_delay: int | None,
+    mode: str,
     crystal_rom: Path | None,
     crystal_state: Path | None,
     crystal_macro: Path | None,
@@ -327,6 +335,14 @@ def run(
     master_seed = seed if seed is not None else time.time_ns()
 
     preview_cb = _make_preview_callback(rom, crystal_rom, crystal_state, crystal_macro)
+
+    if mode == "static":
+        species_addr = cfg.enemy_species_addr
+        dv_addr = cfg.enemy_dv_addr
+        preview_cb = None
+    else:
+        species_addr = cfg.party_species_addr
+        dv_addr = cfg.party_dv_addr
 
     total_attempts = min(max_attempts, delay_window)
     parts = [
@@ -362,6 +378,8 @@ def run(
                 stop_on_first_shiny=not continue_after_shiny,
                 delay_window=delay_window,
                 start_delay=start_delay,
+                species_addr=species_addr,
+                dv_addr=dv_addr,
             )
 
         click.echo(
@@ -420,8 +438,8 @@ def run(
                 rom_path=rom,
                 state_bytes=state_bytes,
                 macro_path=macro_path,
-                species_addr=cfg.party_species_addr,
-                dv_addr=cfg.party_dv_addr,
+                species_addr=species_addr,
+                dv_addr=dv_addr,
                 master_seed=master_seed,
                 max_attempts=max_attempts,
                 num_workers=num_workers,

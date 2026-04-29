@@ -37,6 +37,8 @@ def hunt(
     stop_on_first_shiny: bool = True,
     delay_window: int = DEFAULT_DELAY_WINDOW,
     start_delay: int | None = None,
+    species_addr: int | None = None,
+    dv_addr: int | None = None,
 ) -> HuntResult:
     """Run the reset loop until `max_attempts` or the first shiny."""
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -60,8 +62,8 @@ def hunt(
             pre_macro_state = emu.save_state_bytes()
             species, dvs, _ = run_until_species(
                 emu, hunt_macro,
-                species_addr=cfg.party_species_addr,
-                dv_addr=cfg.party_dv_addr,
+                species_addr=species_addr if species_addr is not None else cfg.party_species_addr,
+                dv_addr=dv_addr if dv_addr is not None else cfg.party_dv_addr,
             )
             shiny = is_shiny(dvs)
             if on_attempt is not None:
