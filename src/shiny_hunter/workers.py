@@ -162,7 +162,6 @@ def hunt_parallel(
     on_worker_progress: Callable[[int, int], None] | None = None,
     on_shiny: Callable[[WorkerResult], None] | None = None,
     delay_window: int = DEFAULT_DELAY_WINDOW,
-    start_delay: int | None = None,
     stop_after_first: bool = True,
     frame_queue: Queue | None = None,
 ) -> ParallelHuntResult:
@@ -170,7 +169,7 @@ def hunt_parallel(
         num_workers = max(1, (os.cpu_count() or 2) - 1)
 
     total_delays = min(max_attempts, delay_window)
-    base = start_delay if start_delay is not None else 0
+    base = 0
     chunk = (total_delays + num_workers - 1) // num_workers
 
     result_queue: Queue = Queue()

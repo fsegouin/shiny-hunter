@@ -285,12 +285,6 @@ def _make_preview_callback(
     help="Number of no-repeat frame delays to search before declaring the window exhausted.",
 )
 @click.option(
-    "--start-delay",
-    type=int,
-    default=None,
-    help="Start scanning from this specific frame delay (e.g. from a previous --continue-after-shiny run).",
-)
-@click.option(
     "--record",
     "record_path",
     type=click.Path(dir_okay=False, path_type=Path),
@@ -337,7 +331,6 @@ def run(
     continue_after_shiny: bool,
     num_workers: int | None,
     delay_window: int,
-    start_delay: int | None,
     mode: str,
     crystal_rom: Path | None,
     crystal_state: Path | None,
@@ -365,13 +358,10 @@ def run(
         dv_addr = cfg.party_dv_addr
 
     total_attempts = min(max_attempts, delay_window)
-    parts = [
-        f"hunting on {cfg.game}/{cfg.region}, seed={master_seed}",
-        f"max={total_attempts:,}, delay_window={delay_window:,}, headless={headless}",
-    ]
-    if start_delay is not None:
-        parts.append(f"start_delay={start_delay:,}")
-    click.echo(", ".join(parts))
+    click.echo(
+        f"hunting on {cfg.game}/{cfg.region}, seed={master_seed}, "
+        f"max={total_attempts:,}, delay_window={delay_window:,}, headless={headless}"
+    )
 
     if monitor:
         from multiprocessing import Queue as MPQueue
@@ -433,7 +423,7 @@ def run(
                 num_workers=num_workers,
                 on_shiny=on_shiny,
                 delay_window=delay_window,
-                start_delay=start_delay,
+
                 stop_after_first=not continue_after_shiny,
                 frame_queue=frame_queue,
             )
@@ -507,7 +497,7 @@ def run(
                 on_shiny=preview_cb,
                 stop_on_first_shiny=not continue_after_shiny,
                 delay_window=delay_window,
-                start_delay=start_delay,
+
                 species_addr=species_addr,
                 dv_addr=dv_addr,
             )
@@ -577,7 +567,7 @@ def run(
                 on_worker_progress=on_worker_progress,
                 on_shiny=on_shiny,
                 delay_window=delay_window,
-                start_delay=start_delay,
+
                 stop_after_first=not continue_after_shiny,
             )
 
@@ -610,7 +600,6 @@ def run(
             click.echo(
                 f"\nbest: delay {best.delay:,} — ATK={best_dvs.atk}, HP={best_dvs.hp}"
             )
-            click.echo(f"use:  shiny-hunt run --start-delay {best.delay} ...")
 
 
 @main.command()

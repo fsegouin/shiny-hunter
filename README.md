@@ -267,19 +267,10 @@ shiny-hunt run \
 #     delay=42,000  EEVEE  ATK=15 ... HP=8  <<< best
 #     ...
 #   best: delay 42,000 — ATK=15, HP=8
-#   use:  shiny-hunt run --start-delay 42000 ...
 ```
 
-Once you know the best delay, use `--start-delay` to jump straight to it:
-
-```bash
-shiny-hunt run \
-  --rom roms/red.gb \
-  --state states/red_us_eevee.state \
-  --macro macros/red_us_eevee.events.json \
-  --start-delay 42000 --headless
-# Hits the shiny on the first attempt.
-```
+All shinies are saved as they're found, so you can use
+`shiny-hunt resume --state shinies/<best>.state` to load the one you want.
 
 If the run exhausts the entire delay window without finding a shiny,
 first check the basics: run `shiny-hunt verify` twice with different
@@ -298,7 +289,6 @@ Other useful flags:
 
 | Flag | Description |
 |------|-------------|
-| `--start-delay N` | Start at a specific frame delay (e.g. from a previous `--continue-after-shiny` run) |
 | `--continue-after-shiny` | Scan the full window; report all shinies with ranked DV summary |
 | `--seed N` | Deterministic master RNG seed (default: `time_ns()`) |
 | `--max-attempts N` | Hard cap on resets (default: 100,000) |
