@@ -158,14 +158,23 @@ def verify(rom: Path, state_path: Path, macro_path: Path, game: str | None, regi
     click.echo(f"DVs:     atk={dvs.atk} def={dvs.def_} spd={dvs.spd} spc={dvs.spc} hp={dvs.hp}")
 
 
+_CRYSTAL_ROM_DEFAULT = Path("roms/crystal.gbc")
+_CRYSTAL_STATE_DEFAULT = Path("states/crystal_template.state")
+_CRYSTAL_MACRO_DEFAULT = Path("macros/crystal_preview.events.json")
+
+
 def _make_preview_callback(
     gen1_rom: Path,
     crystal_rom: Path | None,
     crystal_state: Path | None,
     crystal_macro: Path | None,
 ) -> "Callable[[Path], None] | None":
-    """Return a callback that generates a Crystal preview PNG, or None if Crystal paths are missing."""
-    if not all([crystal_rom, crystal_state, crystal_macro]):
+    """Return a callback that generates a Crystal preview PNG, or None if Crystal assets are missing."""
+    crystal_rom = crystal_rom or _CRYSTAL_ROM_DEFAULT
+    crystal_state = crystal_state or _CRYSTAL_STATE_DEFAULT
+    crystal_macro = crystal_macro or _CRYSTAL_MACRO_DEFAULT
+
+    if not all(p.exists() for p in [crystal_rom, crystal_state, crystal_macro]):
         return None
 
     from .preview import generate_preview
