@@ -807,21 +807,21 @@ def record(
 )
 @click.option(
     "--crystal-rom",
-    required=True,
-    type=click.Path(exists=True, dir_okay=False, path_type=Path),
-    help="Pokemon Crystal ROM (.gbc).",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+    help=f"Pokemon Crystal ROM (.gbc). Default: {_CRYSTAL_ROM_DEFAULT}",
 )
 @click.option(
     "--crystal-state",
-    required=True,
-    type=click.Path(exists=True, dir_okay=False, path_type=Path),
-    help="Crystal template save-state (.state) with 1 pokemon in party.",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+    help=f"Crystal template save-state (.state) with 1 pokemon in party. Default: {_CRYSTAL_STATE_DEFAULT}",
 )
 @click.option(
     "--crystal-macro",
-    required=True,
-    type=click.Path(exists=True, dir_okay=False, path_type=Path),
-    help="Crystal macro to navigate to slot 2 stats screen.",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+    help=f"Crystal macro to navigate to slot 2 stats screen. Default: {_CRYSTAL_MACRO_DEFAULT}",
 )
 @click.option(
     "--out",
@@ -838,14 +838,22 @@ def record(
 def preview(
     rom: Path,
     shiny_state: Path,
-    crystal_rom: Path,
-    crystal_state: Path,
-    crystal_macro: Path,
+    crystal_rom: Path | None,
+    crystal_state: Path | None,
+    crystal_macro: Path | None,
     out_path: Path | None,
     window: bool,
 ) -> None:
     """Generate a Crystal screenshot of a shiny found in Gen 1."""
     from .preview import generate_preview
+
+    crystal_rom = crystal_rom or _CRYSTAL_ROM_DEFAULT
+    crystal_state = crystal_state or _CRYSTAL_STATE_DEFAULT
+    crystal_macro = crystal_macro or _CRYSTAL_MACRO_DEFAULT
+
+    for label, path in [("crystal-rom", crystal_rom), ("crystal-state", crystal_state), ("crystal-macro", crystal_macro)]:
+        if not path.exists():
+            raise click.ClickException(f"--{label}: {path} not found")
 
     if out_path is None:
         out_path = shiny_state.with_suffix(".png")
