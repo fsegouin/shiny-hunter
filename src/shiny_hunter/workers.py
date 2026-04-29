@@ -10,6 +10,8 @@ from pathlib import Path
 from queue import Empty
 from typing import Callable
 
+import numpy as np
+
 from . import macro
 from .delays import DEFAULT_DELAY_WINDOW
 from .dv import is_shiny
@@ -34,6 +36,15 @@ class WorkerProgress:
     attempts: int
     latest_species: int
     latest_dvs: tuple[int, int, int, int]
+
+
+@dataclass
+class WorkerFrame:
+    worker_id: int
+    screen: np.ndarray
+    species: int
+    dvs: tuple[int, int, int, int]
+    is_shiny: bool
 
 
 @dataclass

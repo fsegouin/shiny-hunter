@@ -1,7 +1,9 @@
 """Tests for parallel hunt worker data structures."""
 from __future__ import annotations
 
-from shiny_hunter.workers import WorkerResult, WorkerProgress, ParallelHuntResult
+import numpy as np
+
+from shiny_hunter.workers import WorkerResult, WorkerProgress, ParallelHuntResult, WorkerFrame
 
 
 def test_worker_result_dataclass():
@@ -33,3 +35,20 @@ def test_parallel_hunt_result():
     r = ParallelHuntResult(total_attempts=1000, shinies=[], elapsed_s=5.0)
     assert r.total_attempts == 1000
     assert len(r.shinies) == 0
+
+
+def test_worker_frame_dataclass():
+    screen = np.zeros((144, 160, 3), dtype=np.uint8)
+    screen[0, 0] = [255, 0, 0]
+    f = WorkerFrame(
+        worker_id=0,
+        screen=screen,
+        species=0xB1,
+        dvs=(10, 10, 10, 10),
+        is_shiny=True,
+    )
+    assert f.worker_id == 0
+    assert f.screen.shape == (144, 160, 3)
+    assert f.species == 0xB1
+    assert f.dvs == (10, 10, 10, 10)
+    assert f.is_shiny is True
