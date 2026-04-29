@@ -23,6 +23,7 @@ shiny-hunt --help              # CLI entry point
 shiny-hunt list-games          # Show registered game configs
 shiny-hunt verify --rom ROM --state STATE --macro MACRO   # Single-attempt verification
 shiny-hunt run --rom ROM --state STATE --macro MACRO      # Hunt until shiny
+shiny-hunt run --rom ROM --state STATE --macro MACRO --monitor  # Hunt with live grid window
 shiny-hunt resume --rom ROM --state STATE                 # Load a state and play interactively
 ```
 
@@ -75,3 +76,4 @@ WasmBoy spike verifying browser-side feasibility. Ports of `dv.py`, `games/`, `m
 - JP ROM RAM offsets are best-effort from pret/pokered disassembly
 - Save-state checkpoint must be captured **before** the DV roll (the YES prompt works)
 - Tests marked `needs_rom` require a real ROM file in `roms/`
+- `--monitor` requires tkinter (`sudo pacman -S tk` on Arch, `sudo apt install python3-tk` on Debian/Ubuntu)
