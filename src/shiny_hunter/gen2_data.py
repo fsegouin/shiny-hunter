@@ -165,20 +165,20 @@ GEN1_TO_POKEDEX: dict[int, int] = {
 
 # Catch rate values that get remapped to specific items during Time Capsule transfer.
 # From pret/pokecrystal data/items/catch_rate_items.asm.
-# Item IDs: BERRY=0x2D, BITTER_BERRY=0x2E, GOLD_BERRY=0x53, LEFTOVERS=0xAC
+# Item IDs: BERRY=0xAD, BITTER_BERRY=0x53, GOLD_BERRY=0xAE, LEFTOVERS=0x92
 CATCH_RATE_ITEMS: dict[int, int] = {
-    25:  0xAC,  # LEFTOVERS
-    45:  0x2E,  # BITTER_BERRY
-    50:  0x53,  # GOLD_BERRY
-    90:  0x2D,  # BERRY
-    100: 0x2D,  # BERRY
-    120: 0x2D,  # BERRY
-    135: 0x2D,  # BERRY
-    190: 0x2D,  # BERRY
-    195: 0x2D,  # BERRY
-    220: 0x2D,  # BERRY
-    250: 0x2D,  # BERRY
-    255: 0x2D,  # BERRY
+    25:  0x92,  # LEFTOVERS
+    45:  0x53,  # BITTER_BERRY
+    50:  0xAE,  # GOLD_BERRY
+    90:  0xAD,  # BERRY
+    100: 0xAD,  # BERRY
+    120: 0xAD,  # BERRY
+    135: 0xAD,  # BERRY
+    190: 0xAD,  # BERRY
+    195: 0xAD,  # BERRY
+    220: 0xAD,  # BERRY
+    250: 0xAD,  # BERRY
+    255: 0xAD,  # BERRY
 }
 
 

@@ -28,20 +28,20 @@ def test_gen1_to_pokedex_covers_151():
     assert pokedex_nums == set(range(1, 152))
 
 def test_catch_rate_items_berry_mappings():
-    assert CATCH_RATE_ITEMS[90] == 0x2D
-    assert CATCH_RATE_ITEMS[100] == 0x2D
-    assert CATCH_RATE_ITEMS[120] == 0x2D
-    assert CATCH_RATE_ITEMS[135] == 0x2D
-    assert CATCH_RATE_ITEMS[190] == 0x2D
-    assert CATCH_RATE_ITEMS[195] == 0x2D
-    assert CATCH_RATE_ITEMS[220] == 0x2D
-    assert CATCH_RATE_ITEMS[250] == 0x2D
-    assert CATCH_RATE_ITEMS[255] == 0x2D
+    assert CATCH_RATE_ITEMS[90] == 0xAD
+    assert CATCH_RATE_ITEMS[100] == 0xAD
+    assert CATCH_RATE_ITEMS[120] == 0xAD
+    assert CATCH_RATE_ITEMS[135] == 0xAD
+    assert CATCH_RATE_ITEMS[190] == 0xAD
+    assert CATCH_RATE_ITEMS[195] == 0xAD
+    assert CATCH_RATE_ITEMS[220] == 0xAD
+    assert CATCH_RATE_ITEMS[250] == 0xAD
+    assert CATCH_RATE_ITEMS[255] == 0xAD
 
 def test_catch_rate_items_special():
-    assert CATCH_RATE_ITEMS[25] == 0xAC
-    assert CATCH_RATE_ITEMS[45] == 0x2E
-    assert CATCH_RATE_ITEMS[50] == 0x53
+    assert CATCH_RATE_ITEMS[25] == 0x92
+    assert CATCH_RATE_ITEMS[45] == 0x53
+    assert CATCH_RATE_ITEMS[50] == 0xAE
 
 def test_catch_rate_items_count():
     assert len(CATCH_RATE_ITEMS) == 12

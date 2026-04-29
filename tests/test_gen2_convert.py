@@ -43,7 +43,7 @@ def test_held_item_catch_rate_remapping():
     mon = _make_bulbasaur()
     assert mon.catch_rate == 45
     result = convert(mon)
-    assert result.held_item == 0x2E
+    assert result.held_item == 0x53
 
 
 def test_held_item_passthrough():
@@ -170,7 +170,7 @@ def test_to_bytes_held_item_at_offset_1():
     mon = _make_bulbasaur()
     result = convert(mon)
     data = result.to_struct_bytes()
-    assert data[0x01] == 0x2E
+    assert data[0x01] == 0x53
 
 
 def test_to_bytes_dvs_at_offset_0x15():
