@@ -50,6 +50,11 @@ def test_enemy_species_addr_in_wram_range():
         assert 0xC000 <= c.enemy_species_addr <= 0xDFFF
 
 
+def test_enemy_dv_species_offset_is_consistent():
+    for c in cfg_mod.all_configs():
+        assert c.enemy_dv_addr - c.enemy_species_addr == 0x0C
+
+
 def test_sram_size_is_bank_aligned():
     for c in cfg_mod.all_configs():
         assert c.sram_size % 0x2000 == 0

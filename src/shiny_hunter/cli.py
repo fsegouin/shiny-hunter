@@ -504,7 +504,14 @@ def run(
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
     help="Same macro used during the hunt (.yaml or .events.json).",
 )
-def replay(trace_path: Path, rom: Path, macro_path: Path) -> None:
+@click.option(
+    "--mode",
+    type=click.Choice(["starter", "static"]),
+    default="starter",
+    show_default=True,
+    help="Hunt mode: 'starter' reads party DVs, 'static' reads enemy battle DVs.",
+)
+def replay(trace_path: Path, rom: Path, macro_path: Path, mode: str) -> None:
     """Reproduce the (species, DVs) of a previously found shiny from its trace."""
     tr = trace.load(trace_path)
     rom_sha = sha1_of_file(rom)
@@ -515,6 +522,13 @@ def replay(trace_path: Path, rom: Path, macro_path: Path) -> None:
     cfg = cfg_mod.by_sha1(tr.rom_sha1)
     if cfg is None:
         raise click.ClickException(f"unknown ROM in trace (sha1={tr.rom_sha1})")
+
+    if mode == "static":
+        species_addr = cfg.enemy_species_addr
+        dv_addr = cfg.enemy_dv_addr
+    else:
+        species_addr = cfg.party_species_addr
+        dv_addr = cfg.party_dv_addr
 
     state = Path(tr.state_path)
     if not state.exists():
@@ -533,6 +547,8 @@ def replay(trace_path: Path, rom: Path, macro_path: Path) -> None:
         master_seed=tr.master_seed,
         target_attempt=tr.attempt,
         headless=True,
+        species_addr=species_addr,
+        dv_addr=dv_addr,
     )
     expected = tr.dvs
     actual = dvs.as_dict()
