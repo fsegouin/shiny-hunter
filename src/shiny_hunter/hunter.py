@@ -33,6 +33,7 @@ def hunt(
     max_attempts: int,
     headless: bool = True,
     on_attempt: Callable[[int, int, DVs, bool], None] | None = None,
+    on_shiny: Callable[[Path], None] | None = None,
     stop_on_first_shiny: bool = True,
     delay_window: int = DEFAULT_DELAY_WINDOW,
     start_delay: int | None = None,
@@ -68,7 +69,7 @@ def hunt(
 
             if shiny:
                 shinies += 1
-                _persist_shiny(
+                shiny_state_path = _persist_shiny(
                     emu=emu,
                     cfg=cfg,
                     rom_path=rom_path,
@@ -81,6 +82,8 @@ def hunt(
                     species=species,
                     dvs=dvs,
                 )
+                if on_shiny is not None:
+                    on_shiny(shiny_state_path)
                 if stop_on_first_shiny:
                     break
 
@@ -108,13 +111,14 @@ def _persist_shiny(
     delay: int,
     species: int,
     dvs: DVs,
-) -> None:
-    """On shiny: save emulator state + write trace."""
+) -> Path:
+    """On shiny: save emulator state + write trace. Returns the saved state path."""
     name = pokemon.species_name(species)
     state_name = f"{name}_{cfg.region}_{attempt:06d}.state"
     trace_name = f"{name}_{cfg.region}_{attempt:06d}.trace.json"
 
-    emu.save_state(out_dir / state_name)
+    saved = out_dir / state_name
+    emu.save_state(saved)
 
     trace.write(
         out_dir / trace_name,
@@ -130,6 +134,8 @@ def _persist_shiny(
         species_name=name,
         dvs=dvs,
     )
+
+    return saved
 
 
 def replay_attempt(

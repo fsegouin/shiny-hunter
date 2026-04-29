@@ -158,6 +158,36 @@ def verify(rom: Path, state_path: Path, macro_path: Path, game: str | None, regi
     click.echo(f"DVs:     atk={dvs.atk} def={dvs.def_} spd={dvs.spd} spc={dvs.spc} hp={dvs.hp}")
 
 
+def _make_preview_callback(
+    gen1_rom: Path,
+    crystal_rom: Path | None,
+    crystal_state: Path | None,
+    crystal_macro: Path | None,
+) -> "Callable[[Path], None] | None":
+    """Return a callback that generates a Crystal preview PNG, or None if Crystal paths are missing."""
+    if not all([crystal_rom, crystal_state, crystal_macro]):
+        return None
+
+    from .preview import generate_preview
+
+    def _generate(shiny_state_path: Path) -> None:
+        out_png = shiny_state_path.with_suffix(".png")
+        try:
+            generate_preview(
+                gen1_rom=gen1_rom,
+                shiny_state=shiny_state_path,
+                crystal_rom=crystal_rom,
+                crystal_state=crystal_state,
+                crystal_macro=crystal_macro,
+                out_png=out_png,
+            )
+            click.echo(f"preview saved to {out_png}")
+        except Exception as e:
+            click.echo(f"warning: preview generation failed: {e}", err=True)
+
+    return _generate
+
+
 @main.command()
 @click.option(
     "--rom",
@@ -228,6 +258,24 @@ def verify(rom: Path, state_path: Path, macro_path: Path, game: str | None, regi
     default=None,
     help="Start scanning from this specific frame delay (e.g. from a previous --continue-after-shiny run).",
 )
+@click.option(
+    "--crystal-rom",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    default=None,
+    help="Crystal ROM (.gbc) for auto-generating shiny preview PNGs.",
+)
+@click.option(
+    "--crystal-state",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    default=None,
+    help="Crystal template state (.state) for preview generation.",
+)
+@click.option(
+    "--crystal-macro",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    default=None,
+    help="Crystal macro for preview generation.",
+)
 def run(
     rom: Path,
     state_path: Path,
@@ -242,11 +290,16 @@ def run(
     num_workers: int | None,
     delay_window: int,
     start_delay: int | None,
+    crystal_rom: Path | None,
+    crystal_state: Path | None,
+    crystal_macro: Path | None,
 ) -> None:
     """Hunt for a shiny Pokémon."""
     cfg = _resolve_config(rom, game, region)
     state_bytes = state_path.read_bytes()
     master_seed = seed if seed is not None else time.time_ns()
+
+    preview_cb = _make_preview_callback(rom, crystal_rom, crystal_state, crystal_macro)
 
     total_attempts = min(max_attempts, delay_window)
     parts = [
@@ -278,6 +331,7 @@ def run(
                 max_attempts=max_attempts,
                 headless=headless,
                 on_attempt=on_attempt,
+                on_shiny=preview_cb,
                 stop_on_first_shiny=not continue_after_shiny,
                 delay_window=delay_window,
                 start_delay=start_delay,
@@ -332,6 +386,8 @@ def run(
                     f"ATK={dvs.atk} DEF={dvs.def_} SPD={dvs.spd} SPC={dvs.spc} HP={dvs.hp} "
                     f"(worker {res.worker_id})"
                 )
+                if preview_cb is not None:
+                    preview_cb(out_dir / state_name)
 
             result = hunt_parallel(
                 rom_path=rom,
