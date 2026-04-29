@@ -1,6 +1,6 @@
 # shiny-hunter
 
-![Shiny Squirtle in Crystal](https://github.com/fsegouin/shiny-hunter/blob/2fd74eb7971a5a89bdea7b4d079919e6ededcd15/shinies/squirtle_us_077125.png)
+![Shiny Charmander in Red](https://github.com/fsegouin/shiny-hunter/blob/c22a92786f2d036054ac260f2f59c867ebcd5a7b/demo.gif)
 
 Automatic Gen 1 shiny hunter for Pokémon Red, Blue, Green (JP), and Yellow.
 Runs PyBoy headlessly, soft-resets the game thousands of times per minute, and
