@@ -291,6 +291,13 @@ def _make_preview_callback(
     help="Start scanning from this specific frame delay (e.g. from a previous --continue-after-shiny run).",
 )
 @click.option(
+    "--record",
+    "record_path",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+    help="Record the monitor grid to an animated GIF (implies --monitor). Stops 2s after first shiny.",
+)
+@click.option(
     "--mode",
     type=click.Choice(["starter", "static"]),
     default="starter",
@@ -326,6 +333,7 @@ def run(
     out_dir: Path,
     headless: bool,
     monitor: bool,
+    record_path: Path | None,
     continue_after_shiny: bool,
     num_workers: int | None,
     delay_window: int,
@@ -338,6 +346,8 @@ def run(
     """Hunt for a shiny Pokémon."""
     cfg = _resolve_config(rom, game, region)
 
+    if record_path is not None:
+        monitor = True
     if monitor and not headless:
         raise click.ClickException("--monitor cannot be combined with --window")
 
@@ -365,7 +375,7 @@ def run(
 
     if monitor:
         from multiprocessing import Queue as MPQueue
-        from .monitor import MonitorWindow
+        from .monitor import MonitorWindow, GifRecorder
         from .workers import hunt_parallel, WorkerFrame
         from .dv import decode_dvs
         from queue import Empty
@@ -380,6 +390,7 @@ def run(
         out_dir.mkdir(parents=True, exist_ok=True)
 
         monitor_win = MonitorWindow(actual_workers)
+        gif_recorder = GifRecorder() if record_path is not None else None
 
         hunt_result_holder: list = []
 
@@ -434,14 +445,24 @@ def run(
 
         try:
             while True:
+                has_shiny = False
                 while True:
                     try:
                         wf = frame_queue.get_nowait()
                     except Empty:
                         break
                     monitor_win.update(wf)
+                    if wf.is_shiny:
+                        has_shiny = True
                 if not monitor_win.render():
                     break
+                if gif_recorder is not None:
+                    if has_shiny:
+                        gif_recorder.mark_shiny()
+                    if monitor_win.last_image is not None:
+                        gif_recorder.capture(monitor_win.last_image)
+                    if gif_recorder.should_stop:
+                        break
                 if not hunt_thread.is_alive() and not hunt_result_printed:
                     hunt_thread.join(timeout=5)
                     if hunt_result_holder:
@@ -454,6 +475,10 @@ def run(
         except KeyboardInterrupt:
             pass
         finally:
+            if gif_recorder is not None and record_path is not None and gif_recorder._frames:
+                monitor_win.show_message("Saving...")
+                gif_recorder.save(record_path)
+                click.echo(f"recorded {len(gif_recorder._frames)} frames to {record_path}")
             monitor_win.close()
 
         return
