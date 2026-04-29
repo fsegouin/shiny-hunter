@@ -19,6 +19,9 @@ GB_SCREEN_TILES_W = 20  # 160px / 8px per tile
 _DATA_DIR = Path(__file__).parent / "data"
 _FONT_PNG = _DATA_DIR / "pokered_font.png"
 _FONT_EXTRA_PNG = _DATA_DIR / "pokered_font_extra.png"
+_SHINY_ICON_PNG = _DATA_DIR / "shiny_icon.png"
+
+SHINY_CHAR = "⁂"  # ⁂ — same placeholder as pokecrystal
 
 _CHARMAP: dict[str, int] = {
     "A": 0x80, "B": 0x81, "C": 0x82, "D": 0x83, "E": 0x84,
@@ -42,6 +45,7 @@ _CHARMAP: dict[str, int] = {
     "5": 0xFB, "6": 0xFC, "7": 0xFD, "8": 0xFE, "9": 0xFF,
     " ": 0x7F,
     "=": 0xE3,  # reuse hyphen tile as "=" stand-in
+    SHINY_CHAR: 0x3F,  # Crystal's shiny sparkle icon
 }
 
 _BORDER_TL = 0x79  # ┌
@@ -78,6 +82,10 @@ def _load_tiles() -> dict[int, Image.Image]:
         x, y = col * TILE_SIZE, row * TILE_SIZE
         _tiles[0x60 + i] = extra.crop((x, y, x + TILE_SIZE, y + TILE_SIZE))
 
+    # shiny_icon.png: Crystal's shiny sparkle at tile $3F
+    shiny = Image.open(_SHINY_ICON_PNG).convert("L")
+    _tiles[0x3F] = shiny.crop((0, 0, TILE_SIZE, TILE_SIZE))
+
     return _tiles
 
 
@@ -93,9 +101,9 @@ def render_textbox(lines: list[str], width_tiles: int | None = None) -> Image.Im
     """
     max_len = max((len(line) for line in lines), default=0)
     if width_tiles is None:
-        width_tiles = max_len + 2
-    inner_w = width_tiles
-    total_w = inner_w + 2
+        width_tiles = max_len + 4  # content + 1 padding each side + 2 borders
+    total_w = width_tiles
+    inner_w = total_w - 2
     total_h = len(lines) + 2
 
     img = Image.new("L", (total_w * TILE_SIZE, total_h * TILE_SIZE), 255)

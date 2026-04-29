@@ -116,7 +116,7 @@ class MonitorWindow:
 
     @staticmethod
     def _make_textbox(wf: WorkerFrame) -> "Image.Image":
-        from .gbfont import render_textbox, GB_SCREEN_TILES_W
+        from .gbfont import render_textbox, GB_SCREEN_TILES_W, SHINY_CHAR
 
         name = pokemon.species_name(wf.species).upper()
         a, d, s, c = wf.dvs
@@ -134,6 +134,6 @@ class MonitorWindow:
                 dv_line,
             ]
         if wf.is_shiny:
-            lines.append("SHINY!")
+            lines.append(f"{SHINY_CHAR}SHINY!")
         box = render_textbox(lines, width_tiles=GB_SCREEN_TILES_W)
         return box.resize((box.width * SCALE, box.height * SCALE), resample=0)
