@@ -88,7 +88,8 @@ def bootstrap(rom: Path, out: Path) -> None:
         emu.stop(save=False)
 
 
-def _verify_windowed(cfg: GameConfig, rom: Path, state_path: Path, macro_path: Path):
+def _verify_windowed(cfg: GameConfig, rom: Path, state_path: Path, macro_path: Path,
+                     species_addr: int, dv_addr: int):
     state_bytes = state_path.read_bytes()
     hunt_macro = macro.load(macro_path)
 
@@ -98,8 +99,8 @@ def _verify_windowed(cfg: GameConfig, rom: Path, state_path: Path, macro_path: P
         emu.load_state(state_bytes)
         species, dvs, _ = run_until_species(
             emu, hunt_macro,
-            species_addr=cfg.party_species_addr,
-            dv_addr=cfg.party_dv_addr,
+            species_addr=species_addr,
+            dv_addr=dv_addr,
         )
 
         click.echo("Macro complete — inspect the game state. Close the PyBoy window to continue.")
@@ -137,12 +138,27 @@ def _verify_windowed(cfg: GameConfig, rom: Path, state_path: Path, macro_path: P
     is_flag=True,
     help="Run windowed in real-time; pause after the macro so you can inspect the game state.",
 )
-def verify(rom: Path, state_path: Path, macro_path: Path, game: str | None, region: str | None, window: bool) -> None:
+@click.option(
+    "--mode",
+    type=click.Choice(["starter", "static"]),
+    default="starter",
+    show_default=True,
+    help="Hunt mode: 'starter' reads party DVs, 'static' reads enemy battle DVs.",
+)
+def verify(rom: Path, state_path: Path, macro_path: Path, game: str | None, region: str | None, window: bool, mode: str) -> None:
     """Run one attempt and print species + DVs."""
     cfg = _resolve_config(rom, game, region)
 
+    if mode == "static":
+        species_addr = cfg.enemy_species_addr
+        dv_addr = cfg.enemy_dv_addr
+    else:
+        species_addr = cfg.party_species_addr
+        dv_addr = cfg.party_dv_addr
+
     if window:
-        species, dvs = _verify_windowed(cfg, rom, state_path, macro_path)
+        species, dvs = _verify_windowed(cfg, rom, state_path, macro_path,
+                                        species_addr=species_addr, dv_addr=dv_addr)
     else:
         species, dvs = hunter.replay_attempt(
             cfg=cfg,
@@ -152,6 +168,8 @@ def verify(rom: Path, state_path: Path, macro_path: Path, game: str | None, regi
             master_seed=0,
             target_attempt=1,
             headless=True,
+            species_addr=species_addr,
+            dv_addr=dv_addr,
         )
     name = pokemon.species_name(species)
     click.echo(f"species: 0x{species:02X} ({name})")

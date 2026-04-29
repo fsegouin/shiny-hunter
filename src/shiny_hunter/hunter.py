@@ -148,6 +148,8 @@ def replay_attempt(
     target_attempt: int,
     headless: bool = True,
     delay_window: int = DEFAULT_DELAY_WINDOW,
+    species_addr: int | None = None,
+    dv_addr: int | None = None,
 ) -> tuple[int, DVs]:
     """Re-derive (species, DVs) for a specific attempt index.
 
@@ -164,7 +166,7 @@ def replay_attempt(
             emu.tick(delay)
         species, dvs, _ = run_until_species(
             emu, hunt_macro,
-            species_addr=cfg.party_species_addr,
-            dv_addr=cfg.party_dv_addr,
+            species_addr=species_addr if species_addr is not None else cfg.party_species_addr,
+            dv_addr=dv_addr if dv_addr is not None else cfg.party_dv_addr,
         )
     return species, dvs
