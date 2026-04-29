@@ -7,7 +7,7 @@ Runs PyBoy headlessly, soft-resets the game thousands of times per minute, and
 saves a `.state` file the moment a Pokémon's DVs satisfy the Gen 2 transfer-shiny
 condition. Works for any Pokémon — starters, gifts, wild encounters — as long as
 you can create a save-state checkpoint before the DV roll and a macro that
-triggers it. On a decent computer, this process can take between 5 to 15 minutes,
+triggers it. On a decent computer, this process can take between 30 seconds to 10 minutes,
 depending on if you want to keep searching for better DVs or if you settle
 for the first one found.
 
