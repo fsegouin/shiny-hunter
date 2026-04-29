@@ -103,8 +103,7 @@ Use `shiny-hunt run --continue-after-shiny` to scan the entire delay
 window for a given state/macro pair. It runs the emulator for each
 delay, reports every shiny found live (ranked by DV quality at the
 end), and saves state+trace files for each. If the run exhausts the
-window without finding a shiny, that state/macro combo cannot produce
-one — re-record the macro or create a new checkpoint.
+window without finding a shiny, see the troubleshooting note below.
 
 This is exactly the same physical phenomenon that makes manual
 soft-resetting work on real hardware: a human can't press A on the same
@@ -282,9 +281,18 @@ shiny-hunt run \
 # Hits the shiny on the first attempt.
 ```
 
-If the run exhausts the entire delay window without finding a shiny, that
-state/macro pair cannot produce one — re-record the macro or create a new
-checkpoint.
+If the run exhausts the entire delay window without finding a shiny,
+first check the basics: run `shiny-hunt verify` twice with different
+`--seed` values and confirm the DVs change between runs. If they don't,
+the checkpoint is past the DV roll — create a new one. If `verify`
+shows `species=unknown`, the macro stopped too early — re-record it.
+
+If the checkpoint and macro are sound, try expanding the search with
+`--delay-window 131072` (or higher). The default window of 65,536
+frames gives ~8 expected shinies at 1/8192 odds, but the mapping from
+frame delay to DVs isn't perfectly uniform — some windows have unlucky
+clustering. A larger window explores genuinely new delays and can
+surface shinies the smaller window missed.
 
 Other useful flags:
 
@@ -298,8 +306,42 @@ Other useful flags:
 | `--delay-window N` | Number of no-repeat frame delays to search (default: 65,536) |
 | `--window` | Show a PyBoy window instead of running headless |
 | `--out DIR` | Output directory for `.state` + `.trace.json` (default: `shinies/`) |
+| `--monitor` | Show a live tkinter grid of all worker screens with a DV overlay |
+| `--record FILE` | Record the monitor grid to an animated GIF (implies `--monitor`). Stops 2 s after the first shiny |
+| `--mode starter\|static` | Hunt mode: `starter` reads party DVs, `static` reads enemy battle DVs (default: `starter`) |
+| `--crystal-rom FILE` | Crystal ROM (`.gbc`) for auto-generating shiny preview PNGs (default: `roms/crystal.gbc`) |
+| `--crystal-state FILE` | Crystal template save-state for preview generation (default: `states/crystal_template.state`) |
+| `--crystal-macro FILE` | Crystal macro for preview generation (default: `macros/crystal_preview.events.json`) |
 
-### 5. Replay a found shiny
+### 5. Monitor the hunt
+
+Pass `--monitor` to open a live tkinter window that tiles every worker's
+screen in a grid. Each tile shows the Game Boy framebuffer overlaid with
+the current species, DVs, and Crystal's shiny sparkle icon when a shiny is
+found. Requires tkinter (`sudo pacman -S tk` on Arch, `sudo apt install
+python3-tk` on Debian/Ubuntu).
+
+```bash
+shiny-hunt run \
+  --rom roms/red.gb \
+  --state states/red_us_eevee.state \
+  --macro macros/red_us_eevee.events.json \
+  --monitor
+```
+
+Add `--record shinies/hunt.gif` to save the session as an animated GIF
+(implies `--monitor`). Recording stops automatically 2 seconds after the
+first shiny is found.
+
+```bash
+shiny-hunt run \
+  --rom roms/red.gb \
+  --state states/red_us_eevee.state \
+  --macro macros/red_us_eevee.events.json \
+  --record shinies/hunt.gif
+```
+
+### 6. Replay a found shiny
 
 The trace pins ROM SHA-1, state SHA-1, master seed, and attempt index. With
 the same ROM, state, and macro, the run is deterministic:
@@ -311,18 +353,67 @@ shiny-hunt replay \
   --trace shinies/eevee_us_000042.trace.json
 ```
 
-### 6. Resume a found shiny
+### 7. Resume a found shiny
 
 ```bash
 shiny-hunt resume --rom roms/red.gb --state shinies/eevee_us_004200.state
 # Opens PyBoy windowed. Save in-game, check stats, keep playing.
 ```
 
+### 8. Generate a Crystal shiny preview
+
+If you have a Pokémon Crystal ROM, you can generate a screenshot showing
+what the shiny looks like in Gen 2 — complete with the Crystal sprite and
+colour palette. The `preview` command injects the Gen 1 DVs into a Crystal
+save-state, runs a macro to reach the stats screen, and captures the
+framebuffer as a PNG.
+
+Place the Crystal assets at their default locations and the flags become
+optional:
+
+| Asset | Default path |
+|-------|-------------|
+| Crystal ROM | `roms/crystal.gbc` |
+| Template save-state | `states/crystal_template.state` |
+| Stats-screen macro | `macros/crystal_preview.events.json` |
+
+```bash
+shiny-hunt preview \
+  --rom roms/red.gb \
+  --state shinies/eevee_us_004200.state
+# Writes shinies/eevee_us_004200.png
+```
+
+When Crystal assets are present at the default paths, `shiny-hunt run`
+automatically generates a preview PNG alongside each shiny find — no
+extra flags needed. You can override any path with `--crystal-rom`,
+`--crystal-state`, or `--crystal-macro` if your files live elsewhere.
+
+### Hunting static encounters
+
+For Pokémon whose DVs are rolled in battle (legendaries, Snorlax, etc.)
+rather than added to the party directly, use `--mode static`. This reads
+the enemy battle DVs instead of the party slot:
+
+```bash
+shiny-hunt verify \
+  --rom roms/red.gb \
+  --state states/red_us_mewtwo.state \
+  --macro macros/red_us_mewtwo.events.json \
+  --mode static
+
+shiny-hunt run \
+  --rom roms/red.gb \
+  --state states/red_us_mewtwo.state \
+  --macro macros/red_us_mewtwo.events.json \
+  --mode static --headless
+```
+
 ## Project layout
 
 ```
 src/shiny_hunter/
-  cli.py             entry point (run | bootstrap | verify | replay | record | list-games)
+  cli.py             entry point (run | bootstrap | verify | replay | record | preview | list-games)
   hunter.py          main reset loop + replay
   emulator.py        PyBoy 2.x wrapper (banked SRAM dump, save/load state from bytes)
   recorder.py        windowed-mode joypad polling -> event-log macro
@@ -335,6 +426,13 @@ src/shiny_hunter/
   delays.py          frame-delay scheduling (seed_offset)
   trace.py           per-attempt JSON traces (schema v2)
   progress.py        rich Live counter
+  monitor.py         live tkinter grid with DV overlay + GIF recording
+  crystal.py         Crystal ROM DV injection for preview screenshots
+  preview.py         Crystal shiny preview PNG generation
+  gbfont.py          Pokémon Red bitmap font renderer for the monitor overlay
+  gen1_party.py      Gen 1 party structure helpers
+  gen2_convert.py    Gen 1 → Gen 2 data conversion
+  gen2_data.py       Gen 2 Pokémon data tables (species, types, moves)
   games/             per-(game, region) configs (red_us, red_jp, blue_us, ...)
   macros/            per-(game, region) save macros (.yaml)
 ```
