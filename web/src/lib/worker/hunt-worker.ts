@@ -80,6 +80,7 @@ export type WorkerOutbound =
       attemptsPerSec: number;
       delay: number;
       latestDvs: DVsData;
+      latestSpecies: number;
     }
   | { type: 'frame'; pixels: ArrayBuffer }
   | {
@@ -258,19 +259,26 @@ async function runHunt(
   delayWindow: number,
 ): Promise<void> {
   // 1. Fetch WASM binary and boot the emulator core
+  console.log('[hunt-worker] phase 1: fetching WASM...');
   const wasmResp = await fetch('/wasmboy-core.wasm');
   const wasmBytes = await wasmResp.arrayBuffer();
+  console.log('[hunt-worker] phase 1: instantiating core...');
   const core = await instantiateCore(wasmBytes);
   loadRom(core, rom);
   configureCore(core);
+  console.log('[hunt-worker] phase 1: core ready');
 
   // 2. Write bootstrap state and tick to the seed-derived initial delay
   const bootstrapState = transferToSections(stateTransfer);
+  console.log('[hunt-worker] phase 2: writing bootstrap state...');
   writeState(core, bootstrapState);
 
   let currentDelay = masterSeed % delayWindow;
+  console.log('[hunt-worker] phase 2: initial delay =', currentDelay, '/', delayWindow);
   if (currentDelay > 0) {
+    const t = performance.now();
     tick(core, currentDelay);
+    console.log('[hunt-worker] phase 2: initial delay ticked in', (performance.now() - t).toFixed(0), 'ms');
   }
 
   const maxAttempts = delayWindow;
@@ -278,6 +286,7 @@ async function runHunt(
   let shiniesFound = 0;
   const t0 = performance.now();
   let lastFramePostTime = t0;
+  console.log('[hunt-worker] phase 3: entering hunt loop, maxAttempts =', maxAttempts);
 
   // 3. Main hunt loop
   while (attempt < maxAttempts && !stopped) {
@@ -312,6 +321,7 @@ async function runHunt(
     let species = 0;
     let dvs: DVsData = { atk: 0, def: 0, spd: 0, spc: 0, hp: 0 };
     const HARD_CAP = 1200;
+    let settleF = -1;
 
     for (let f = 0; f < HARD_CAP; f++) {
       tick(core, 1);
@@ -320,6 +330,7 @@ async function runHunt(
         const raw = readBytes(core, config.dvAddr, 2);
         if (raw[0] !== 0 || raw[1] !== 0) {
           dvs = decodeDVs(raw[0], raw[1]);
+          settleF = f;
           break;
         }
       }
@@ -328,18 +339,17 @@ async function runHunt(
     // 3d. Check shiny predicate
     const shiny = isShiny(dvs);
 
-    // 3e. Post progress every ~50 attempts
-    if (attempt % 50 === 0 || attempt === 1 || shiny) {
-      const elapsed = (performance.now() - t0) / 1000;
-      const attemptsPerSec = elapsed > 0 ? attempt / elapsed : 0;
-      post({
-        type: 'progress',
-        attempt,
-        attemptsPerSec,
-        delay,
-        latestDvs: dvs,
-      });
-    }
+    // 3e. Post progress every attempt.
+    const elapsed = (performance.now() - t0) / 1000;
+    const attemptsPerSec = elapsed > 0 ? attempt / elapsed : 0;
+    post({
+      type: 'progress',
+      attempt,
+      attemptsPerSec,
+      delay,
+      latestDvs: dvs,
+      latestSpecies: species,
+    });
 
     // 3f. Post framebuffer every ~200ms
     const now = performance.now();
@@ -386,10 +396,8 @@ async function runHunt(
     if (attempt < maxAttempts && !stopped) {
       currentDelay = (currentDelay + 1) % delayWindow;
       if (currentDelay === 0) {
-        // Wrapped around — reload the original bootstrap state
         writeState(core, bootstrapState);
       } else {
-        // Reload pre-macro state and advance 1 frame
         writeState(core, preMacroState);
         tick(core, 1);
       }
