@@ -49,3 +49,149 @@ input[type="file"] { color: inherit; }
   height: 100% !important;
   image-rendering: pixelated;
 }
+
+/* Step Indicator */
+.step-indicator {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.step-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.step-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: bold;
+  background: #333;
+  color: #e6e6e6;
+  flex-shrink: 0;
+}
+
+.step-done { opacity: 0.6; }
+.step-done .step-number { background: #2a6; color: #fff; }
+.step-active .step-number { background: #3aa; color: #fff; }
+.step-pending { opacity: 0.3; }
+
+.step-summary {
+  color: #888;
+  font-size: 12px;
+}
+
+/* Canvas Wrap */
+.canvas-wrap {
+  position: relative;
+  max-width: 720px;
+  aspect-ratio: 160 / 144;
+  background: #000;
+  border: 1px solid #333;
+}
+
+/* Monitor Grid */
+.monitor-grid-wrap {
+  background: #111;
+  border: 1px solid #222;
+  padding: 8px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.monitor-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+
+.grid-dot {
+  position: relative;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #444;
+  cursor: default;
+}
+
+.grid-dot-shiny {
+  background: #0dc850;
+  box-shadow: 0 0 4px #0dc850;
+}
+
+.grid-tooltip {
+  position: absolute;
+  bottom: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #1a1a1a;
+  border: 1px solid #444;
+  padding: 4px 8px;
+  font-size: 11px;
+  white-space: nowrap;
+  z-index: 10;
+  pointer-events: none;
+}
+
+/* Shiny Result */
+.shiny-result {
+  border: 2px solid #2a6;
+  padding: 16px;
+  margin: 16px 0;
+}
+
+.shiny-header {
+  color: #0dc850 !important;
+  margin: 0 0 4px !important;
+  font-size: 18px !important;
+}
+
+.shiny-species {
+  font-size: 16px;
+  font-weight: bold;
+  margin: 0 0 8px;
+}
+
+.stats-bar {
+  display: flex;
+  gap: 12px;
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+
+/* Preview Wrap */
+.preview-wrap {
+  width: 320px;
+  aspect-ratio: 160 / 144;
+  position: relative;
+}
+
+/* Recording Indicator */
+.recording-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #d33;
+  font-weight: bold;
+  font-size: 13px;
+  animation: rec-pulse 1s ease-in-out infinite;
+}
+
+.recording-indicator::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #d33;
+}
+
+@keyframes rec-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
