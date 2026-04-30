@@ -293,8 +293,13 @@ async function runHunt(
     attempt++;
     const delay = currentDelay;
 
+    const measure = attempt <= 3;
+    const tA = measure ? performance.now() : 0;
+
     // 3a. Save pre-macro state
     const preMacroState = readState(core, config.sramSize);
+
+    const tB = measure ? performance.now() : 0;
 
     // 3b. Reset joypad and replay macro events
     clearJoypad(core);
@@ -317,12 +322,15 @@ async function runHunt(
       tick(core, macroTotalFrames - macroFrame);
     }
 
+    const tC = measure ? performance.now() : 0;
+
     // 3c. Reset joypad, poll for species
     clearJoypad(core);
 
     let species = 0;
     let dvs: DVsData = { atk: 0, def: 0, spd: 0, spc: 0, hp: 0 };
     const HARD_CAP = 1200;
+    let settleF = -1;
 
     for (let f = 0; f < HARD_CAP; f++) {
       tick(core, 1);
@@ -331,9 +339,59 @@ async function runHunt(
         const raw = readBytes(core, config.dvAddr, 2);
         if (raw[0] !== 0 || raw[1] !== 0) {
           dvs = decodeDVs(raw[0], raw[1]);
+          settleF = f;
           break;
         }
       }
+    }
+
+    if (measure) {
+      const tD = performance.now();
+      console.log('[hunt-worker] attempt', attempt, 'timings (ms):',
+        'readState=', (tB - tA).toFixed(1),
+        'macro=', (tC - tB).toFixed(1),
+        'settle=', (tD - tC).toFixed(1),
+        '(settleF=', settleF, ', macroTotalFrames=', macroTotalFrames, ')');
+    }
+
+    // One-shot diagnostic on attempt 1: re-replay the macro with per-event
+    // polling to find the earliest frame at which species + DVs become
+    // readable. If much earlier than macroTotalFrames the macro is over-
+    // recorded and the hunt could run faster by trimming.
+    if (attempt === 1) {
+      writeState(core, preMacroState);
+      let mFrame = 0;
+      let firstSet = -1;
+      const checkSpecies = () => {
+        const sp = readByte(core, config.speciesAddr);
+        if (sp === 0) return false;
+        const raw = readBytes(core, config.dvAddr, 2);
+        return raw[0] !== 0 || raw[1] !== 0;
+      };
+      const POLL_CHUNK = 30;
+      const last = macro.length > 0 ? macro[macro.length - 1].frame : 0;
+      const tipFrame = Math.max(last, macroTotalFrames);
+      const jp = freshJoypad();
+      clearJoypad(core);
+      for (const ev of macro) {
+        while (ev.frame > mFrame) {
+          const step = Math.min(POLL_CHUNK, ev.frame - mFrame);
+          tick(core, step);
+          mFrame += step;
+          if (checkSpecies()) { firstSet = mFrame; break; }
+        }
+        if (firstSet >= 0) break;
+        applyButton(jp, ev.button, ev.kind === 'press');
+        pushJoypad(core, jp);
+      }
+      while (firstSet < 0 && mFrame < tipFrame + HARD_CAP) {
+        const step = Math.min(POLL_CHUNK, tipFrame + HARD_CAP - mFrame);
+        tick(core, step);
+        mFrame += step;
+        if (checkSpecies()) { firstSet = mFrame; break; }
+      }
+      console.log('[hunt-worker] earliest-species frame =', firstSet,
+        '(macro events end at', last, ', macroTotalFrames =', macroTotalFrames, ')');
     }
 
     // 3d. Check shiny predicate
