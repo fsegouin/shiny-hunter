@@ -8,6 +8,7 @@ import {
   init as initEmulator,
   type WasmBoyEmulator,
 } from '@/lib/emulator/wasmboy';
+import { loadCheckpoint, type Checkpoint } from '@/lib/storage';
 import GameCanvas from '@/app/components/GameCanvas';
 import { Gamepad } from '@/app/Gamepad';
 
@@ -17,11 +18,16 @@ interface Props {
     config: GameConfig;
     savedState: WasmBoySaveState;
   }) => void;
+  onRestoreCheckpoint?: (data: {
+    romBytes: Uint8Array;
+    config: GameConfig;
+    checkpoint: Checkpoint;
+  }) => void;
 }
 
-type Status = 'idle' | 'loading-rom' | 'ready' | 'saving';
+type Status = 'idle' | 'loading-rom' | 'has-checkpoint' | 'ready' | 'saving';
 
-export default function SaveState({ onComplete }: Props) {
+export default function SaveState({ onComplete, onRestoreCheckpoint }: Props) {
   const [config, setConfig] = useState<GameConfig | null>(null);
   const [romBytes, setRomBytes] = useState<Uint8Array | null>(null);
   const [emu, setEmu] = useState<WasmBoyEmulator | null>(null);
@@ -29,45 +35,16 @@ export default function SaveState({ onComplete }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [speed, setSpeed] = useState(1);
+  const [existingCheckpoint, setExistingCheckpoint] = useState<Checkpoint | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  const onRomChosen = useCallback(async (file: File) => {
-    setError(null);
-    setStatus('loading-rom');
-
-    // Load ROM bytes (handles .gb/.gbc and ZIP archives)
-    let bytes: Uint8Array;
-    try {
-      const load = await loadRomFromFile(file);
-      bytes = load.bytes;
-    } catch (err) {
-      setError(`Could not read ROM: ${(err as Error).message}`);
-      setStatus('idle');
-      return;
-    }
-
-    // Identify the ROM
-    const sha = await sha1OfBytes(bytes);
-    const cfg = findBySha1(sha);
-    if (!cfg) {
-      setError(
-        `Unrecognised ROM (SHA-1: ${sha}). Only supported Gen 1 ROMs are accepted.`,
-      );
-      setStatus('idle');
-      return;
-    }
-
-    setRomBytes(bytes);
-    setConfig(cfg);
-
-    // Auto-init WasmBoy in windowed mode
+  const startEmulator = useCallback(async (bytes: Uint8Array, cfg: GameConfig) => {
     const canvas = canvasRef.current;
     if (!canvas) {
       setError('Canvas not available. Please try again.');
       setStatus('idle');
       return;
     }
-
     try {
       const e = await initEmulator({
         rom: bytes,
@@ -81,6 +58,58 @@ export default function SaveState({ onComplete }: Props) {
       setStatus('idle');
     }
   }, []);
+
+  const onRomChosen = useCallback(async (file: File) => {
+    setError(null);
+    setStatus('loading-rom');
+
+    let bytes: Uint8Array;
+    try {
+      const load = await loadRomFromFile(file);
+      bytes = load.bytes;
+    } catch (err) {
+      setError(`Could not read ROM: ${(err as Error).message}`);
+      setStatus('idle');
+      return;
+    }
+
+    const sha = await sha1OfBytes(bytes);
+    const cfg = findBySha1(sha);
+    if (!cfg) {
+      setError(
+        `Unrecognised ROM (SHA-1: ${sha}). Only supported Gen 1 ROMs are accepted.`,
+      );
+      setStatus('idle');
+      return;
+    }
+
+    setRomBytes(bytes);
+    setConfig(cfg);
+
+    const cp = await loadCheckpoint(cfg.game, cfg.region);
+    if (cp) {
+      setExistingCheckpoint(cp);
+      setStatus('has-checkpoint');
+      return;
+    }
+
+    await startEmulator(bytes, cfg);
+  }, [startEmulator]);
+
+  const useExistingCheckpoint = useCallback(() => {
+    if (!existingCheckpoint || !romBytes || !config) return;
+    if (onRestoreCheckpoint) {
+      onRestoreCheckpoint({ romBytes, config, checkpoint: existingCheckpoint });
+    } else {
+      onComplete({ romBytes, config, savedState: existingCheckpoint.savedState });
+    }
+  }, [existingCheckpoint, romBytes, config, onComplete, onRestoreCheckpoint]);
+
+  const startFresh = useCallback(async () => {
+    if (!romBytes || !config) return;
+    setExistingCheckpoint(null);
+    await startEmulator(romBytes, config);
+  }, [romBytes, config, startEmulator]);
 
   const onSaveState = useCallback(async () => {
     if (!emu || !romBytes || !config) return;
@@ -105,7 +134,6 @@ export default function SaveState({ onComplete }: Props) {
         Pok&eacute;mon?&rdquo; YES/NO dialog, then click <b>Save State</b>.
       </p>
 
-      {/* ROM file input */}
       {status === 'idle' && (
         <div className="row">
           <input
@@ -118,19 +146,36 @@ export default function SaveState({ onComplete }: Props) {
         </div>
       )}
 
-      {/* Status / config info */}
       {status === 'loading-rom' && <p>Loading ROM and initializing emulator...</p>}
-      {config && (
+
+      {status === 'has-checkpoint' && existingCheckpoint && config && (
+        <div>
+          <p className="ok">
+            {config.game}/{config.region} &mdash; existing checkpoint found
+            ({new Date(existingCheckpoint.date).toLocaleDateString()}
+            {existingCheckpoint.macro ? ', with macro' : ''})
+          </p>
+          <div className="row">
+            <button onClick={useExistingCheckpoint}>
+              Use existing checkpoint
+              {existingCheckpoint.macro
+                ? ` (skip to ${existingCheckpoint.verifiedSpecies ? 'Hunt' : 'Record Macro'})`
+                : ''}
+            </button>
+            <button onClick={() => void startFresh()}>Start fresh</button>
+          </div>
+        </div>
+      )}
+
+      {config && status !== 'has-checkpoint' && (
         <p className="ok">
           {config.game}/{config.region} &mdash; DV @
           0x{config.partyDvAddr.toString(16)}
         </p>
       )}
 
-      {/* Error display */}
       {error && <p className="err">{error}</p>}
 
-      {/* Canvas + Gamepad overlay */}
       <div
         style={{
           position: 'relative',
@@ -147,7 +192,6 @@ export default function SaveState({ onComplete }: Props) {
         {status === 'ready' && emu && <Gamepad emu={emu} />}
       </div>
 
-      {/* Speed + Save State controls */}
       {status === 'ready' && (
         <div className="row">
           {[1, 2, 3].map((s) => (

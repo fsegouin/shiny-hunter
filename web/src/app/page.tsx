@@ -4,6 +4,7 @@ import { useCallback, useState } from 'react';
 import type { GameConfig } from '@/lib/games';
 import type { WasmBoySaveState } from '@/lib/state';
 import type { EventMacro } from '@/lib/macro';
+import { saveCheckpoint, type Checkpoint } from '@/lib/storage';
 import StepIndicator from './components/StepIndicator';
 import SaveState from './steps/SaveState';
 import RecordMacro from './steps/RecordMacro';
@@ -54,13 +55,49 @@ export default function HuntPage() {
       config: result.config,
       savedState: result.savedState,
     }));
+    void saveCheckpoint({
+      id: `${result.config.game}/${result.config.region}`,
+      game: result.config.game,
+      region: result.config.region,
+      savedState: result.savedState,
+      macro: null,
+      verifiedSpecies: '',
+      date: Date.now(),
+    });
     setStep(1);
+  }, []);
+
+  const onRestoreCheckpoint = useCallback((result: {
+    romBytes: Uint8Array;
+    config: GameConfig;
+    checkpoint: Checkpoint;
+  }) => {
+    const cp = result.checkpoint;
+    setData({
+      romBytes: result.romBytes,
+      config: result.config,
+      savedState: cp.savedState,
+      macro: cp.macro,
+      verifiedSpecies: cp.verifiedSpecies,
+    });
+    setStep(cp.macro ? 2 : 1);
   }, []);
 
   const onStep2Complete = useCallback((macro: EventMacro, verifiedSpecies: string) => {
     setData(d => ({ ...d, macro, verifiedSpecies }));
+    if (data.config && data.savedState) {
+      void saveCheckpoint({
+        id: `${data.config.game}/${data.config.region}`,
+        game: data.config.game,
+        region: data.config.region,
+        savedState: data.savedState,
+        macro,
+        verifiedSpecies,
+        date: Date.now(),
+      });
+    }
     setStep(2);
-  }, []);
+  }, [data.config, data.savedState]);
 
   return (
     <main>
@@ -68,7 +105,10 @@ export default function HuntPage() {
       <StepIndicator steps={stepDefs} currentStep={step} />
 
       {step === 0 && (
-        <SaveState onComplete={onStep1Complete} />
+        <SaveState
+          onComplete={onStep1Complete}
+          onRestoreCheckpoint={onRestoreCheckpoint}
+        />
       )}
 
       {step === 1 && data.romBytes && data.config && data.savedState && (
