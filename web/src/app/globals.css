@@ -99,45 +99,32 @@ input[type="file"] { color: inherit; }
 
 /* Monitor Grid */
 .monitor-grid-wrap {
-  background: #111;
+  background: #1e1e1e;
   border: 1px solid #222;
   padding: 8px;
-  max-height: 200px;
-  overflow-y: auto;
+  margin: 12px 0;
 }
 
 .monitor-grid {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 3px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 4px;
 }
 
-.grid-dot {
-  position: relative;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #444;
-  cursor: default;
+.monitor-cell {
+  display: block;
+  width: 100%;
+  height: auto;
+  image-rendering: pixelated;
+  image-rendering: -moz-crisp-edges;
+  image-rendering: crisp-edges;
+  background: #000;
+  border: 2px solid #333;
 }
 
-.grid-dot-shiny {
-  background: #0dc850;
-  box-shadow: 0 0 4px #0dc850;
-}
-
-.grid-tooltip {
-  position: absolute;
-  bottom: 14px;
-  left: 50%;
-  transform: translateX(-50%);
-  background: #1a1a1a;
-  border: 1px solid #444;
-  padding: 4px 8px;
-  font-size: 11px;
-  white-space: nowrap;
-  z-index: 10;
-  pointer-events: none;
+.monitor-cell-shiny {
+  border-color: #0dc850;
+  box-shadow: 0 0 8px #0dc850;
 }
 
 /* Shiny Result */

@@ -30,8 +30,10 @@ export interface HuntCallbacks {
     attemptsPerSec: number;
     delay: number;
     latestDvs: DVsData;
+    latestSpecies: number;
+    pixels: Uint8Array;
+    shiny: boolean;
   }): void;
-  onFrame(pixels: Uint8Array): void;
   onShiny(data: {
     state: StateSectionsTransfer;
     species: number;
@@ -150,10 +152,10 @@ export function startHunt(
           attemptsPerSec: msg.attemptsPerSec,
           delay: msg.delay,
           latestDvs: msg.latestDvs,
+          latestSpecies: msg.latestSpecies,
+          pixels: new Uint8Array(msg.pixels),
+          shiny: msg.shiny,
         });
-        break;
-      case 'frame':
-        callbacks.onFrame(new Uint8Array(msg.pixels));
         break;
       case 'shiny':
         callbacks.onShiny({

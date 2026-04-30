@@ -81,8 +81,9 @@ export type WorkerOutbound =
       delay: number;
       latestDvs: DVsData;
       latestSpecies: number;
+      pixels: ArrayBuffer;
+      shiny: boolean;
     }
-  | { type: 'frame'; pixels: ArrayBuffer }
   | {
       type: 'shiny';
       state: StateSectionsTransfer;
@@ -285,7 +286,6 @@ async function runHunt(
   let attempt = 0;
   let shiniesFound = 0;
   const t0 = performance.now();
-  let lastFramePostTime = t0;
   console.log('[hunt-worker] phase 3: entering hunt loop, maxAttempts =', maxAttempts);
 
   // 3. Main hunt loop
@@ -310,7 +310,9 @@ async function runHunt(
       pushJoypad(core, joypad);
     }
 
-    // Tick remaining macro frames (events may end before totalFrames)
+    // Tick the trailing wait in one batched call — `executeMultipleFrames`
+    // is much faster than per-frame ticks, so do this rather than relying
+    // on the 1-frame settle loop below.
     if (macroTotalFrames > macroFrame) {
       tick(core, macroTotalFrames - macroFrame);
     }
@@ -321,7 +323,6 @@ async function runHunt(
     let species = 0;
     let dvs: DVsData = { atk: 0, def: 0, spd: 0, spc: 0, hp: 0 };
     const HARD_CAP = 1200;
-    let settleF = -1;
 
     for (let f = 0; f < HARD_CAP; f++) {
       tick(core, 1);
@@ -330,7 +331,6 @@ async function runHunt(
         const raw = readBytes(core, config.dvAddr, 2);
         if (raw[0] !== 0 || raw[1] !== 0) {
           dvs = decodeDVs(raw[0], raw[1]);
-          settleF = f;
           break;
         }
       }
@@ -339,28 +339,23 @@ async function runHunt(
     // 3d. Check shiny predicate
     const shiny = isShiny(dvs);
 
-    // 3e. Post progress every attempt.
+    // 3e. Post progress (with framebuffer) every attempt.
     const elapsed = (performance.now() - t0) / 1000;
     const attemptsPerSec = elapsed > 0 ? attempt / elapsed : 0;
-    post({
-      type: 'progress',
-      attempt,
-      attemptsPerSec,
-      delay,
-      latestDvs: dvs,
-      latestSpecies: species,
-    });
-
-    // 3f. Post framebuffer every ~200ms
-    const now = performance.now();
-    if (now - lastFramePostTime >= 200) {
-      lastFramePostTime = now;
-      const pixels = getFrameBuffer(core);
-      // getFrameBuffer returns a .slice() copy, so the underlying buffer is
-      // owned and safe to transfer.
-      const pixelBuf = toOwnedBuffer(pixels);
-      post({ type: 'frame', pixels: pixelBuf }, [pixelBuf]);
-    }
+    const pixelBuf = toOwnedBuffer(getFrameBuffer(core));
+    post(
+      {
+        type: 'progress',
+        attempt,
+        attemptsPerSec,
+        delay,
+        latestDvs: dvs,
+        latestSpecies: species,
+        pixels: pixelBuf,
+        shiny,
+      },
+      [pixelBuf],
+    );
 
     // 3g. If shiny: post result, then pause and await resume/stop
     if (shiny) {

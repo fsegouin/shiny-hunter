@@ -11,7 +11,7 @@ import {
   type HuntCallbacks,
 } from '@/lib/hunt';
 import { init as initEmulator, type WasmBoyEmulator } from '@/lib/emulator/wasmboy';
-import MonitorGrid, { type AttemptResult } from '../components/MonitorGrid';
+import { preloadFont, renderTextbox, GB_SCREEN_TILES_W, SHINY_CHAR } from '@/lib/gbfont';
 import ShinyResult from '../components/ShinyResult';
 import { Gamepad } from '../Gamepad';
 
@@ -52,6 +52,27 @@ function fmtTime(secs: number): string {
 
 const DELAY_WINDOW = 1 << 16; // 65 536
 
+function pad(n: number, width: number): string {
+  return String(n).padStart(width, ' ');
+}
+
+interface OverlayInfo {
+  attempt: number;
+  speciesName: string;
+  dvs: { atk: number; def: number; spd: number; spc: number; hp: number };
+  shiny: boolean;
+}
+
+function buildOverlayLines(o: OverlayInfo): string[] {
+  const lines = [
+    `#${o.attempt} ${o.speciesName.toUpperCase()}`,
+    `ATK ${pad(o.dvs.atk, 2)} DEF ${pad(o.dvs.def, 2)}`,
+    `SPD ${pad(o.dvs.spd, 2)} SPC ${pad(o.dvs.spc, 2)} HP${pad(o.dvs.hp, 2)}`,
+  ];
+  if (o.shiny) lines.push(`${SHINY_CHAR}SHINY!`);
+  return lines;
+}
+
 /** Convert worker RGB (3 bpp) pixels to canvas RGBA ImageData. */
 function rgbToImageData(rgb: Uint8Array, width: number, height: number): ImageData {
   const rgba = new Uint8ClampedArray(width * height * 4);
@@ -73,7 +94,6 @@ export default function Hunt({ romBytes, config, savedState, macro }: Props) {
   const [attempts, setAttempts] = useState(0);
   const [speed, setSpeed] = useState(0);
   const [elapsed, setElapsed] = useState(0);
-  const [grid, setGrid] = useState<AttemptResult[]>([]);
   const [shiny, setShiny] = useState<ShinyInfo | null>(null);
   const [shinies, setShinies] = useState<ShinyInfo[]>([]);
   const [doneInfo, setDoneInfo] = useState<{ total: number; found: number } | null>(null);
@@ -84,6 +104,9 @@ export default function Hunt({ romBytes, config, savedState, macro }: Props) {
   const emuRef = useRef<WasmBoyEmulator | null>(null);
   const t0Ref = useRef(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Preload the GB font tiles so the first overlay renders without delay.
+  useEffect(() => { void preloadFont(); }, []);
 
   // Elapsed timer — ticks every second while hunting
   useEffect(() => {
@@ -100,14 +123,22 @@ export default function Hunt({ romBytes, config, savedState, macro }: Props) {
     };
   }, [phase]);
 
-  /** Draw an RGB framebuffer onto the preview canvas. */
-  const drawFrame = useCallback((pixels: Uint8Array) => {
+  /**
+   * Draw the framebuffer onto the preview canvas, optionally overlaying
+   * the Pokémon-style textbox for the latest attempt.
+   */
+  const drawFrame = useCallback(async (pixels: Uint8Array, overlay: OverlayInfo | null) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
+    ctx.imageSmoothingEnabled = false;
     const imageData = rgbToImageData(pixels, 160, 144);
     ctx.putImageData(imageData, 0, 0);
+    if (!overlay) return;
+    const textbox = await renderTextbox(buildOverlayLines(overlay), GB_SCREEN_TILES_W);
+    if (canvasRef.current !== canvas) return; // canvas swapped, abort
+    ctx.drawImage(textbox, 0, 0);
   }, []);
 
   /** Start the hunt. */
@@ -116,7 +147,6 @@ export default function Hunt({ romBytes, config, savedState, macro }: Props) {
     setError(null);
     setAttempts(0);
     setSpeed(0);
-    setGrid([]);
     setShiny(null);
     setShinies([]);
     setDoneInfo(null);
@@ -129,25 +159,15 @@ export default function Hunt({ romBytes, config, savedState, macro }: Props) {
         setSpeed(data.attemptsPerSec);
         setElapsed((performance.now() - t0Ref.current) / 1000);
 
-        // Append to monitor grid
-        const shinyCheck =
-          data.latestDvs.def === 10 &&
-          data.latestDvs.spd === 10 &&
-          data.latestDvs.spc === 10 &&
-          [2, 3, 6, 7, 10, 11, 14, 15].includes(data.latestDvs.atk);
-
-        setGrid((prev) => [
-          ...prev,
-          {
-            attempt: data.attempt,
-            delay: data.delay,
-            dvs: data.latestDvs,
-            shiny: shinyCheck,
-          },
-        ]);
-      },
-      onFrame(pixels) {
-        drawFrame(pixels);
+        const speciesName =
+          config.starters[data.latestSpecies] ??
+          `species(0x${data.latestSpecies.toString(16)})`;
+        void drawFrame(data.pixels, {
+          attempt: data.attempt,
+          speciesName,
+          dvs: data.latestDvs,
+          shiny: data.shiny,
+        });
       },
       onShiny(data) {
         const wbState = transferToWasmBoyState(data.state);
@@ -321,9 +341,6 @@ export default function Hunt({ romBytes, config, savedState, macro }: Props) {
           <Gamepad emu={emuRef.current} />
         )}
       </div>
-
-      {/* Monitor grid */}
-      {grid.length > 0 && <MonitorGrid attempts={grid} />}
 
       {/* Shiny result panel */}
       {phase === 'paused-shiny' && shiny && (
