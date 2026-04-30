@@ -89,7 +89,7 @@ export function startHunt(
   macro: EventMacro,
   config: GameConfig,
   callbacks: HuntCallbacks,
-  masterSeed: number = Math.floor(Math.random() * 0xffffffff),
+  masterSeed: number = 0,
 ): HuntHandle {
   const worker = new Worker(
     new URL('./worker/hunt-worker.ts', import.meta.url),
