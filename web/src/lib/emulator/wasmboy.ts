@@ -107,9 +107,7 @@ export async function init(opts: InitOptions): Promise<WasmBoyEmulator> {
   await WasmBoy.config(
     {
       headless,
-      // Audio off in both modes for now; spike doesn't need it and the
-      // mobile audio context handshake adds complexity.
-      isAudioEnabled: false,
+      isAudioEnabled: !headless,
       gameboyFrameRate: 60,
       disablePauseOnHidden: true,
       enableBootROMIfAvailable: false,
