@@ -54,16 +54,20 @@ export interface StateSectionsTransfer {
 export type WorkerInbound =
   | {
       type: 'start';
+      workerId: number;
       rom: Uint8Array;
       state: StateSectionsTransfer;
       macro: MacroEvent[];
       macroTotalFrames: number;
       config: HuntConfig;
-      masterSeed: number;
-      delayWindow: number;
+      /** First absolute delay this worker should probe (within [0, delayWindow)). */
+      startDelay: number;
+      /** Number of contiguous delays this worker walks. */
+      delayCount: number;
     }
-  | { type: 'stop' }
-  | { type: 'resume' };
+  | { type: 'pause' }
+  | { type: 'resume' }
+  | { type: 'stop' };
 
 export interface DVsData {
   atk: number;
@@ -76,6 +80,7 @@ export interface DVsData {
 export type WorkerOutbound =
   | {
       type: 'progress';
+      workerId: number;
       attempt: number;
       attemptsPerSec: number;
       delay: number;
@@ -86,14 +91,15 @@ export type WorkerOutbound =
     }
   | {
       type: 'shiny';
+      workerId: number;
       state: StateSectionsTransfer;
       species: number;
       dvs: DVsData;
       delay: number;
       attempt: number;
     }
-  | { type: 'done'; totalAttempts: number; shiniesFound: number }
-  | { type: 'error'; message: string };
+  | { type: 'done'; workerId: number; totalAttempts: number; shiniesFound: number }
+  | { type: 'error'; workerId: number; message: string };
 
 // ---------------------------------------------------------------------------
 // DV helpers (inline — avoids importing from the lib which may reference DOM)
@@ -231,6 +237,7 @@ const ctx = self as unknown as WorkerSelf;
 
 let stopped = false;
 let paused = false;
+let currentWorkerId = 0;
 
 /** Post a typed message to the main thread. */
 function post(msg: WorkerOutbound, transfer?: Transferable[]): void {
@@ -251,49 +258,50 @@ function sleep(ms: number): Promise<void> {
 // ---------------------------------------------------------------------------
 
 async function runHunt(
+  workerId: number,
   rom: Uint8Array,
   stateTransfer: StateSectionsTransfer,
   macro: MacroEvent[],
   macroTotalFrames: number,
   config: HuntConfig,
-  masterSeed: number,
-  delayWindow: number,
+  startDelay: number,
+  delayCount: number,
 ): Promise<void> {
+  const tag = `[hunt-worker#${workerId}]`;
   // 1. Fetch WASM binary and boot the emulator core
-  console.log('[hunt-worker] phase 1: fetching WASM...');
+  console.log(tag, 'phase 1: fetching WASM...');
   const wasmResp = await fetch('/wasmboy-core.wasm');
   const wasmBytes = await wasmResp.arrayBuffer();
-  console.log('[hunt-worker] phase 1: instantiating core...');
+  console.log(tag, 'phase 1: instantiating core...');
   const core = await instantiateCore(wasmBytes);
   loadRom(core, rom);
   configureCore(core);
-  console.log('[hunt-worker] phase 1: core ready');
+  console.log(tag, 'phase 1: core ready');
 
-  // 2. Write bootstrap state and tick to the seed-derived initial delay
+  // 2. Write bootstrap state and tick forward to this worker's slice start.
   const bootstrapState = transferToSections(stateTransfer);
-  console.log('[hunt-worker] phase 2: writing bootstrap state...');
   writeState(core, bootstrapState);
 
-  let currentDelay = masterSeed % delayWindow;
-  console.log('[hunt-worker] phase 2: initial delay =', currentDelay, '/', delayWindow);
-  if (currentDelay > 0) {
+  console.log(tag, 'phase 2: startDelay =', startDelay, ', delayCount =', delayCount);
+  if (startDelay > 0) {
     const t = performance.now();
-    tick(core, currentDelay);
-    console.log('[hunt-worker] phase 2: initial delay ticked in', (performance.now() - t).toFixed(0), 'ms');
+    tick(core, startDelay);
+    console.log(tag, 'phase 2: ticked to startDelay in', (performance.now() - t).toFixed(0), 'ms');
   }
 
-  const maxAttempts = delayWindow;
+  let currentDelay = startDelay;
+  const maxAttempts = delayCount;
   let attempt = 0;
   let shiniesFound = 0;
   const t0 = performance.now();
-  console.log('[hunt-worker] phase 3: entering hunt loop, maxAttempts =', maxAttempts);
+  console.log(tag, 'phase 3: entering hunt loop, slice attempts =', maxAttempts);
 
   // 3. Main hunt loop
   while (attempt < maxAttempts && !stopped) {
     attempt++;
     const delay = currentDelay;
 
-    const measure = attempt <= 3;
+    const measure = workerId === 0 && attempt <= 3;
     const tA = measure ? performance.now() : 0;
 
     // 3a. Save pre-macro state
@@ -354,11 +362,11 @@ async function runHunt(
         '(settleF=', settleF, ', macroTotalFrames=', macroTotalFrames, ')');
     }
 
-    // One-shot diagnostic on attempt 1: re-replay the macro with per-event
-    // polling to find the earliest frame at which species + DVs become
-    // readable. If much earlier than macroTotalFrames the macro is over-
-    // recorded and the hunt could run faster by trimming.
-    if (attempt === 1) {
+    // One-shot diagnostic on attempt 1 of worker 0: re-replay the macro
+    // with per-event polling to find the earliest frame at which species
+    // + DVs become readable. If much earlier than macroTotalFrames the
+    // macro is over-recorded and the hunt could run faster by trimming.
+    if (workerId === 0 && attempt === 1) {
       writeState(core, preMacroState);
       let mFrame = 0;
       let firstSet = -1;
@@ -404,6 +412,7 @@ async function runHunt(
     post(
       {
         type: 'progress',
+        workerId,
         attempt,
         attemptsPerSec,
         delay,
@@ -415,7 +424,7 @@ async function runHunt(
       [pixelBuf],
     );
 
-    // 3g. If shiny: post result, then pause and await resume/stop
+    // 3f. If shiny: post result and pause this worker.
     if (shiny) {
       shiniesFound++;
       const shinyState = readState(core, config.sramSize);
@@ -423,6 +432,7 @@ async function runHunt(
       post(
         {
           type: 'shiny',
+          workerId,
           state: transfer,
           species,
           dvs,
@@ -436,29 +446,26 @@ async function runHunt(
           transfer.cartridgeRam,
         ],
       );
-
-      // Pause and wait for resume or stop
       paused = true;
-      while (paused && !stopped) {
-        await sleep(100);
-      }
-      if (stopped) break;
     }
 
-    // 3h. Advance to next delay
-    if (attempt < maxAttempts && !stopped) {
-      currentDelay = (currentDelay + 1) % delayWindow;
-      if (currentDelay === 0) {
-        writeState(core, bootstrapState);
-      } else {
-        writeState(core, preMacroState);
-        tick(core, 1);
-      }
+    // 3g. Honor pause requests at attempt boundaries (set by this worker on
+    // shiny, or sent by the main thread when another worker found shiny).
+    while (paused && !stopped) {
+      await sleep(100);
+    }
+    if (stopped) break;
+
+    // 3h. Advance to next delay (linear within this worker's slice — no wrap).
+    if (attempt < maxAttempts) {
+      currentDelay++;
+      writeState(core, preMacroState);
+      tick(core, 1);
     }
   }
 
   // 4. Done
-  post({ type: 'done', totalAttempts: attempt, shiniesFound });
+  post({ type: 'done', workerId, totalAttempts: attempt, shiniesFound });
 }
 
 // ---------------------------------------------------------------------------
@@ -472,28 +479,34 @@ ctx.onmessage = (e: MessageEvent<WorkerInbound>) => {
     case 'start':
       stopped = false;
       paused = false;
+      currentWorkerId = msg.workerId;
       runHunt(
+        msg.workerId,
         msg.rom,
         msg.state,
         msg.macro,
         msg.macroTotalFrames,
         msg.config,
-        msg.masterSeed,
-        msg.delayWindow,
+        msg.startDelay,
+        msg.delayCount,
       ).catch((err: unknown) => {
         const message =
           err instanceof Error ? err.message : String(err);
-        post({ type: 'error', message });
+        post({ type: 'error', workerId: currentWorkerId, message });
       });
+      break;
+
+    case 'pause':
+      paused = true;
+      break;
+
+    case 'resume':
+      paused = false;
       break;
 
     case 'stop':
       stopped = true;
       paused = false; // unblock any pause loop
-      break;
-
-    case 'resume':
-      paused = false;
       break;
   }
 };

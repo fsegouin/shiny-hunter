@@ -76,6 +76,7 @@ export function verifyMacro(
     worker.postMessage(
       {
         type: 'start' as const,
+        workerId: 0,
         rom,
         state: stateTransfer,
         macro: macroEvents,
@@ -86,8 +87,8 @@ export function verifyMacro(
           sramSize: config.sramSize,
           settleFrames: config.postMacroSettleFrames,
         },
-        masterSeed: 0,
-        delayWindow: 1,
+        startDelay: 0,
+        delayCount: 1,
       },
       [internalState, paletteMemory, gameBoyMemory, cartridgeRam],
     );

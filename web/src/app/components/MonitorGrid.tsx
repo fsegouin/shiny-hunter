@@ -10,6 +10,7 @@ const CELL_W = GB_W * SCALE;
 const CELL_H = GB_H * SCALE;
 
 export interface AttemptResult {
+  workerId: number;
   attempt: number;
   delay: number;
   speciesName: string;
@@ -29,7 +30,7 @@ function pad(n: number, width: number): string {
 function buildLines(a: AttemptResult): string[] {
   const name = a.speciesName.toUpperCase();
   const lines = [
-    `#${a.attempt} ${name}`,
+    `W${a.workerId} ${name}`,
     `ATK ${pad(a.dvs.atk, 2)} DEF ${pad(a.dvs.def, 2)}`,
     `SPD ${pad(a.dvs.spd, 2)} SPC ${pad(a.dvs.spc, 2)} HP${pad(a.dvs.hp, 2)}`,
   ];
@@ -94,11 +95,17 @@ function MonitorCell({ attempt }: { attempt: AttemptResult }) {
 }
 
 export default function MonitorGrid({ attempts }: MonitorGridProps) {
+  // Cap at 2 rows so every worker is visible at once. For very small worker
+  // counts we still want at least 2 columns to avoid an awkwardly tall stack.
+  const cols = Math.max(2, Math.ceil(attempts.length / 2));
   return (
     <div className="monitor-grid-wrap">
-      <div className="monitor-grid">
-        {attempts.map((a, i) => (
-          <MonitorCell key={`${a.attempt}-${i}`} attempt={a} />
+      <div
+        className="monitor-grid"
+        style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}
+      >
+        {attempts.map((a) => (
+          <MonitorCell key={a.workerId} attempt={a} />
         ))}
       </div>
     </div>

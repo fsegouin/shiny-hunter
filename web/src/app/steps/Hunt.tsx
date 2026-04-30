@@ -11,7 +11,8 @@ import {
   type HuntCallbacks,
 } from '@/lib/hunt';
 import { init as initEmulator, type WasmBoyEmulator } from '@/lib/emulator/wasmboy';
-import { preloadFont, renderTextbox, GB_SCREEN_TILES_W, SHINY_CHAR } from '@/lib/gbfont';
+import { preloadFont } from '@/lib/gbfont';
+import MonitorGrid, { type AttemptResult } from '../components/MonitorGrid';
 import ShinyResult from '../components/ShinyResult';
 import { Gamepad } from '../Gamepad';
 
@@ -52,41 +53,6 @@ function fmtTime(secs: number): string {
 
 const DELAY_WINDOW = 1 << 16; // 65 536
 
-function pad(n: number, width: number): string {
-  return String(n).padStart(width, ' ');
-}
-
-interface OverlayInfo {
-  attempt: number;
-  speciesName: string;
-  dvs: { atk: number; def: number; spd: number; spc: number; hp: number };
-  shiny: boolean;
-}
-
-function buildOverlayLines(o: OverlayInfo): string[] {
-  const lines = [
-    `#${o.attempt} ${o.speciesName.toUpperCase()}`,
-    `ATK ${pad(o.dvs.atk, 2)} DEF ${pad(o.dvs.def, 2)}`,
-    `SPD ${pad(o.dvs.spd, 2)} SPC ${pad(o.dvs.spc, 2)} HP${pad(o.dvs.hp, 2)}`,
-  ];
-  if (o.shiny) lines.push(`${SHINY_CHAR}SHINY!`);
-  return lines;
-}
-
-/** Convert worker RGB (3 bpp) pixels to canvas RGBA ImageData. */
-function rgbToImageData(rgb: Uint8Array, width: number, height: number): ImageData {
-  const rgba = new Uint8ClampedArray(width * height * 4);
-  const pixelCount = width * height;
-  for (let i = 0; i < pixelCount; i++) {
-    const srcOff = i * 3;
-    const dstOff = i * 4;
-    rgba[dstOff] = rgb[srcOff];
-    rgba[dstOff + 1] = rgb[srcOff + 1];
-    rgba[dstOff + 2] = rgb[srcOff + 2];
-    rgba[dstOff + 3] = 255;
-  }
-  return new ImageData(rgba, width, height);
-}
 
 export default function Hunt({ romBytes, config, savedState, macro }: Props) {
   const [phase, setPhase] = useState<Phase>('ready');
@@ -98,6 +64,8 @@ export default function Hunt({ romBytes, config, savedState, macro }: Props) {
   const [shinies, setShinies] = useState<ShinyInfo[]>([]);
   const [doneInfo, setDoneInfo] = useState<{ total: number; found: number } | null>(null);
   const [playingShiny, setPlayingShiny] = useState(false);
+  /** Latest preview cell per worker — feeds the monitor grid. */
+  const [grid, setGrid] = useState<Map<number, AttemptResult>>(() => new Map());
 
   const handleRef = useRef<HuntHandle | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -123,24 +91,6 @@ export default function Hunt({ romBytes, config, savedState, macro }: Props) {
     };
   }, [phase]);
 
-  /**
-   * Draw the framebuffer onto the preview canvas, optionally overlaying
-   * the Pokémon-style textbox for the latest attempt.
-   */
-  const drawFrame = useCallback(async (pixels: Uint8Array, overlay: OverlayInfo | null) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    ctx.imageSmoothingEnabled = false;
-    const imageData = rgbToImageData(pixels, 160, 144);
-    ctx.putImageData(imageData, 0, 0);
-    if (!overlay) return;
-    const textbox = await renderTextbox(buildOverlayLines(overlay), GB_SCREEN_TILES_W);
-    if (canvasRef.current !== canvas) return; // canvas swapped, abort
-    ctx.drawImage(textbox, 0, 0);
-  }, []);
-
   /** Start the hunt. */
   const startHunting = useCallback(() => {
     setPhase('hunting');
@@ -151,22 +101,31 @@ export default function Hunt({ romBytes, config, savedState, macro }: Props) {
     setShinies([]);
     setDoneInfo(null);
     setPlayingShiny(false);
+    setGrid(new Map());
     t0Ref.current = performance.now();
 
     const callbacks: HuntCallbacks = {
       onProgress(data) {
-        setAttempts(data.attempt);
+        setAttempts(data.totalAttempts);
         setSpeed(data.attemptsPerSec);
         setElapsed((performance.now() - t0Ref.current) / 1000);
-
+      },
+      onWorkerProgress(data) {
         const speciesName =
           config.starters[data.latestSpecies] ??
           `species(0x${data.latestSpecies.toString(16)})`;
-        void drawFrame(data.pixels, {
-          attempt: data.attempt,
-          speciesName,
-          dvs: data.latestDvs,
-          shiny: data.shiny,
+        setGrid((prev) => {
+          const next = new Map(prev);
+          next.set(data.workerId, {
+            workerId: data.workerId,
+            attempt: data.attempt,
+            delay: data.delay,
+            speciesName,
+            dvs: data.latestDvs,
+            shiny: data.shiny,
+            pixels: data.pixels,
+          });
+          return next;
         });
       },
       onShiny(data) {
@@ -199,7 +158,7 @@ export default function Hunt({ romBytes, config, savedState, macro }: Props) {
 
     const handle = startHunt(romBytes, savedState, macro, config, callbacks);
     handleRef.current = handle;
-  }, [romBytes, savedState, macro, config, drawFrame]);
+  }, [romBytes, savedState, macro, config]);
 
   /** Stop the hunt and terminate the worker. */
   const stopHunting = useCallback(() => {
@@ -316,31 +275,36 @@ export default function Hunt({ romBytes, config, savedState, macro }: Props) {
         </div>
       )}
 
-      {/* Preview canvas — a single persistent canvas element so the ref
-          stays stable across headless-preview / windowed-play transitions. */}
-      <div
-        className="preview-wrap"
-        style={{
-          display: phase !== 'ready' ? 'block' : 'none',
-          position: 'relative',
-          width: '100%',
-          maxWidth: 720,
-          aspectRatio: '160 / 144',
-          background: '#000',
-          border: '1px solid #333',
-          margin: '12px auto',
-        }}
-      >
-        <canvas
-          ref={canvasRef}
-          className="emu-canvas"
-          width={160}
-          height={144}
-        />
-        {playingShiny && emuRef.current && (
-          <Gamepad emu={emuRef.current} />
-        )}
-      </div>
+      {/* Per-worker monitor grid (with GB-style overlay) while hunting.
+          Hidden during shiny playback — that uses the same canvas mount. */}
+      {(phase === 'hunting' || (phase === 'paused-shiny' && !playingShiny)) && grid.size > 0 && (
+        <MonitorGrid attempts={Array.from(grid.values()).sort((a, b) => a.workerId - b.workerId)} />
+      )}
+
+      {/* Shiny playback canvas — a single persistent canvas mounted only
+          when the user clicks Play on a shiny result. */}
+      {playingShiny && (
+        <div
+          className="preview-wrap"
+          style={{
+            position: 'relative',
+            width: '100%',
+            maxWidth: 720,
+            aspectRatio: '160 / 144',
+            background: '#000',
+            border: '1px solid #333',
+            margin: '12px auto',
+          }}
+        >
+          <canvas
+            ref={canvasRef}
+            className="emu-canvas"
+            width={160}
+            height={144}
+          />
+          {emuRef.current && <Gamepad emu={emuRef.current} />}
+        </div>
+      )}
 
       {/* Shiny result panel */}
       {phase === 'paused-shiny' && shiny && (

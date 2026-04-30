@@ -107,7 +107,7 @@ input[type="file"] { color: inherit; }
 
 .monitor-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  /* grid-template-columns is set inline by MonitorGrid (2-row cap). */
   gap: 4px;
 }
 
