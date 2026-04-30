@@ -53,6 +53,8 @@ export interface WasmBoyEmulator {
   releaseButton(button: Button): void;
   /** Resets joypad to all-released. */
   clearJoypad(): void;
+  /** Set emulation speed multiplier (1 = normal, 2 = 2x, etc.). */
+  setSpeed(multiplier: number): void;
   /** Resume real-time playback (windowed mode). */
   play(): Promise<void>;
   /** Pause real-time playback (windowed mode). */
@@ -208,6 +210,7 @@ export async function init(opts: InitOptions): Promise<WasmBoyEmulator> {
       (Object.keys(joypad) as Array<keyof JoypadState>).forEach((k) => (joypad[k] = false));
       pushJoypad();
     },
+    setSpeed: (m) => WasmBoy.setSpeed(m),
     play: () => WasmBoy.play(),
     pause: () => WasmBoy.pause(),
     shutdown: async () => {

@@ -28,6 +28,7 @@ export default function RecordMacro({ romBytes, config, savedState, onComplete }
   const [emu, setEmu] = useState<WasmBoyEmulator | null>(null);
   const [error, setError] = useState('');
   const [verifyInfo, setVerifyInfo] = useState('');
+  const [speed, setSpeed] = useState(1);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const sessionRef = useRef<RecordingSession | null>(null);
   const macroRef = useRef<EventMacro | null>(null);
@@ -138,6 +139,15 @@ export default function RecordMacro({ romBytes, config, savedState, onComplete }
       {phase === 'recording' && (
         <div className="row" style={{ marginTop: 12 }}>
           <span className="recording-indicator">REC</span>
+          {[1, 2, 3].map((s) => (
+            <button
+              key={s}
+              className={speed === s ? 'speed-active' : ''}
+              onClick={() => { setSpeed(s); emu?.setSpeed(s); }}
+            >
+              {s}x
+            </button>
+          ))}
           <button onClick={stopRecording}>Done</button>
         </div>
       )}

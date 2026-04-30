@@ -27,6 +27,7 @@ button {
 }
 button:disabled { opacity: 0.4; cursor: not-allowed; }
 button:hover:not(:disabled) { background: #222; }
+button.speed-active { background: #3aa; color: #000; border-color: #3aa; }
 
 pre {
   background: #111;

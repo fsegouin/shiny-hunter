@@ -28,6 +28,7 @@ export default function SaveState({ onComplete }: Props) {
   const [status, setStatus] = useState<Status>('idle');
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [speed, setSpeed] = useState(1);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const onRomChosen = useCallback(async (file: File) => {
@@ -146,9 +147,18 @@ export default function SaveState({ onComplete }: Props) {
         {status === 'ready' && emu && <Gamepad emu={emu} />}
       </div>
 
-      {/* Save State button */}
+      {/* Speed + Save State controls */}
       {status === 'ready' && (
         <div className="row">
+          {[1, 2, 3].map((s) => (
+            <button
+              key={s}
+              className={speed === s ? 'speed-active' : ''}
+              onClick={() => { setSpeed(s); emu?.setSpeed(s); }}
+            >
+              {s}x
+            </button>
+          ))}
           <button disabled={saving} onClick={onSaveState}>
             {saving ? 'Saving...' : 'Save State'}
           </button>
