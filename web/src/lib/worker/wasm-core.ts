@@ -250,7 +250,13 @@ export function loadRom(core: WasmCore, romBytes: Uint8Array): void {
 // Configuration
 // ---------------------------------------------------------------------------
 
-// Headless config: batch audio/graphics/timers + disable scanline rendering.
+// Headless hunt config: skip graphics work entirely (graphicsBatch +
+// disableScanline) and batch audio/timers. The WasmBoy benchmark uses
+// tileCaching instead because it actually renders frames; we don't, so
+// disabling scanline rendering wins for dialog-heavy scenes like the
+// starter selection.
+//   [bootRom, isGbc, audioBatch, gfxBatch, timerBatch, disableScanline,
+//    audioAccum, tileRender, tileCache, audioDebug]
 const HEADLESS_CONFIG: [number, number, number, number, number, number, number, number, number, number] =
   [0, 0, 1, 1, 1, 1, 0, 0, 0, 0];
 
