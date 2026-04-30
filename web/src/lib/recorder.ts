@@ -24,8 +24,8 @@ const GAMEPAD_KEY_TO_BUTTON: Record<string, Button> = {
 const ALL_GAMEPAD_KEYS = Object.keys(GAMEPAD_KEY_TO_BUTTON);
 
 export interface RecordingSession {
-  /** Ends the recording, releases held buttons, and returns the macro. */
-  stop(): EventMacro;
+  /** Ends the recording, waits for any in-flight frame to finish, and returns the macro. */
+  stop(): Promise<EventMacro>;
 }
 
 /**
@@ -39,17 +39,13 @@ export function startRecording(emu: WasmBoyEmulator): RecordingSession {
   const events: EventEntry[] = [];
   let frame = 0;
   let running = true;
+  let inFlightFrame: Promise<void> | null = null;
 
-  // Track which buttons are currently held so we can detect transitions.
   const held: Record<string, boolean> = {};
   for (const key of ALL_GAMEPAD_KEYS) {
     held[key] = false;
   }
 
-  // Pause WasmBoy's own RAF loop so we can drive frames manually.
-  // emu.pause() is async but we fire-and-forget here — the first
-  // requestAnimationFrame tick won't fire until the microtask queue
-  // drains, so pause completes before we start ticking.
   void emu.pause();
 
   const loop = async () => {
@@ -57,7 +53,6 @@ export function startRecording(emu: WasmBoyEmulator): RecordingSession {
 
     frame++;
 
-    // Poll responsive-gamepad for current button states.
     const state = emu.responsiveGamepad.getState() as Record<string, boolean>;
 
     for (const key of ALL_GAMEPAD_KEYS) {
@@ -81,24 +76,28 @@ export function startRecording(emu: WasmBoyEmulator): RecordingSession {
       }
     }
 
-    // Advance one emulator frame and render to canvas.
     await emu.tick(1);
     await emu.renderFrame();
 
-    // Schedule next frame.
     if (running) {
-      requestAnimationFrame(() => void loop());
+      requestAnimationFrame(() => {
+        inFlightFrame = loop();
+      });
     }
   };
 
-  // Kick off the recording loop.
-  requestAnimationFrame(() => void loop());
+  requestAnimationFrame(() => {
+    inFlightFrame = loop();
+  });
 
   return {
-    stop(): EventMacro {
+    async stop(): Promise<EventMacro> {
       running = false;
 
-      // Release any buttons still held and record the release events.
+      if (inFlightFrame) {
+        await inFlightFrame;
+      }
+
       for (const key of ALL_GAMEPAD_KEYS) {
         if (held[key]) {
           held[key] = false;

@@ -8,8 +8,8 @@ import {
 import type { WasmBoySaveState } from '@/lib/state';
 import type { GameConfig } from '@/lib/games';
 import type { EventMacro } from '@/lib/macro';
-import { replayMacro } from '@/lib/macro';
-import { decodeDVs, isShiny } from '@/lib/dv';
+import { isShiny } from '@/lib/dv';
+import { verifyMacro } from '@/lib/verify';
 import { startRecording, type RecordingSession } from '@/lib/recorder';
 import GameCanvas from '@/app/components/GameCanvas';
 import { Gamepad } from '@/app/Gamepad';
@@ -57,29 +57,23 @@ export default function RecordMacro({ romBytes, config, savedState, onComplete }
 
   const stopRecording = useCallback(async () => {
     if (!sessionRef.current || !emu) return;
-    const macro = sessionRef.current.stop();
-    macroRef.current = macro;
     setPhase('verifying');
+    const macro = await sessionRef.current.stop();
+    macroRef.current = macro;
 
-    // Auto-verify: headless replay from the same saved state
+    // Verify using the bare WASM worker (same one the hunt uses).
+    // WasmBoy's singleton worker is left in a broken state after the
+    // recorder's manual _runWasmExport calls — its postMessage wrapper
+    // times out on SET_MEMORY. The bare WASM worker has its own
+    // independent WASM instance and avoids WasmBoy entirely.
     try {
-      await emu.shutdown();
-      const headless = await initEmulator({ rom: romBytes, mode: 'headless' });
-      await headless.loadState(savedState);
-      headless.clearJoypad();
-      await replayMacro(headless, macro);
-
-      // Tick settle frames so the party data is committed
-      await headless.tick(config.postMacroSettleFrames);
-
-      const species = await headless.readByte(config.partySpeciesAddr);
-      const dvBytes = await headless.readBytes(config.partyDvAddr, 2);
-      const dvs = decodeDVs(dvBytes[0], dvBytes[1]);
-
-      await headless.shutdown();
+      const { species, dvs } = await verifyMacro(romBytes, savedState, macro, config);
 
       if (species === 0) {
-        setError("Macro didn't capture the Pokémon. Try recording again.");
+        setError(
+          `Macro didn't capture the Pokémon (species=0, dvs=${JSON.stringify(dvs)}). ` +
+          `Macro had ${macro.events.length} events over ${macro.totalFrames} frames. Try recording again.`
+        );
         setPhase('error');
         return;
       }
@@ -93,7 +87,9 @@ export default function RecordMacro({ romBytes, config, savedState, onComplete }
       );
       setPhase('verified');
     } catch (err) {
-      setError(`Verify failed: ${(err as Error).message}`);
+      console.error('Verify error:', err);
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(`Verify failed: ${msg}`);
       setPhase('error');
     }
   }, [emu, romBytes, savedState, config]);
