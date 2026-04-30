@@ -55,6 +55,8 @@ export interface WasmBoyEmulator {
   clearJoypad(): void;
   /** Set emulation speed multiplier (1 = normal, 2 = 2x, etc.). */
   setSpeed(multiplier: number): void;
+  /** Force-render the current frame to the canvas (for manual tick loops). */
+  renderFrame(): Promise<void>;
   /** Resume real-time playback (windowed mode). */
   play(): Promise<void>;
   /** Pause real-time playback (windowed mode). */
@@ -142,8 +144,10 @@ export async function init(opts: InitOptions): Promise<WasmBoyEmulator> {
     await WasmBoy.pause();
   }
 
-  // Resolve the GB memory base once. Async — postMessage to the worker.
+  // Resolve memory layout constants once. Async — postMessage to the worker.
   const gbMemoryBase = await WasmBoy._getWasmConstant('GAMEBOY_INTERNAL_MEMORY_LOCATION');
+  const frameLocation = await (WasmBoy._getWasmConstant as (k: string) => Promise<number>)('FRAME_LOCATION');
+  const frameSize = await (WasmBoy._getWasmConstant as (k: string) => Promise<number>)('FRAME_SIZE');
 
   // Persistent joypad state we mutate via press/release.
   const joypad: JoypadState = {
@@ -211,6 +215,22 @@ export async function init(opts: InitOptions): Promise<WasmBoyEmulator> {
       pushJoypad();
     },
     setSpeed: (m) => WasmBoy.setSpeed(m),
+    renderFrame: async () => {
+      const canvas = opts.canvas;
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      const rgb = await WasmBoy._getWasmMemorySection(frameLocation, frameLocation + frameSize);
+      const pixels = 160 * 144;
+      const imageData = ctx.createImageData(160, 144);
+      for (let i = 0; i < pixels; i++) {
+        imageData.data[i * 4] = rgb[i * 3];
+        imageData.data[i * 4 + 1] = rgb[i * 3 + 1];
+        imageData.data[i * 4 + 2] = rgb[i * 3 + 2];
+        imageData.data[i * 4 + 3] = 255;
+      }
+      ctx.putImageData(imageData, 0, 0);
+    },
     play: () => WasmBoy.play(),
     pause: () => WasmBoy.pause(),
     shutdown: async () => {

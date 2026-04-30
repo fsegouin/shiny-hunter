@@ -81,8 +81,9 @@ export function startRecording(emu: WasmBoyEmulator): RecordingSession {
       }
     }
 
-    // Advance one emulator frame (renders to canvas).
+    // Advance one emulator frame and render to canvas.
     await emu.tick(1);
+    await emu.renderFrame();
 
     // Schedule next frame.
     if (running) {
