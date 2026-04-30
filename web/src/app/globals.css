@@ -27,6 +27,7 @@ button {
 }
 button:disabled { opacity: 0.4; cursor: not-allowed; }
 button:hover:not(:disabled) { background: #222; }
+button.speed-active { background: #3aa; color: #000; border-color: #3aa; }
 
 pre {
   background: #111;
@@ -48,4 +49,137 @@ input[type="file"] { color: inherit; }
   width: 100% !important;
   height: 100% !important;
   image-rendering: pixelated;
+}
+
+/* Step Indicator */
+.step-indicator {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.step-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.step-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: bold;
+  background: #333;
+  color: #e6e6e6;
+  flex-shrink: 0;
+}
+
+.step-done { opacity: 0.6; }
+.step-done .step-number { background: #2a6; color: #fff; }
+.step-active .step-number { background: #3aa; color: #fff; }
+.step-pending { opacity: 0.3; }
+
+.step-summary {
+  color: #888;
+  font-size: 12px;
+}
+
+/* Canvas Wrap */
+.canvas-wrap {
+  position: relative;
+  max-width: 720px;
+  aspect-ratio: 160 / 144;
+  background: #000;
+  border: 1px solid #333;
+}
+
+/* Monitor Grid */
+.monitor-grid-wrap {
+  background: #1e1e1e;
+  border: 1px solid #222;
+  padding: 8px;
+  margin: 12px 0;
+}
+
+.monitor-grid {
+  display: grid;
+  /* grid-template-columns is set inline by MonitorGrid (2-row cap). */
+  gap: 4px;
+}
+
+.monitor-cell {
+  display: block;
+  width: 100%;
+  height: auto;
+  image-rendering: pixelated;
+  image-rendering: -moz-crisp-edges;
+  image-rendering: crisp-edges;
+  background: #000;
+  border: 2px solid #333;
+}
+
+.monitor-cell-shiny {
+  border-color: #0dc850;
+  box-shadow: 0 0 8px #0dc850;
+}
+
+/* Shiny Result */
+.shiny-result {
+  border: 2px solid #2a6;
+  padding: 16px;
+  margin: 16px 0;
+}
+
+.shiny-header {
+  color: #0dc850 !important;
+  margin: 0 0 4px !important;
+  font-size: 18px !important;
+}
+
+.shiny-species {
+  font-size: 16px;
+  font-weight: bold;
+  margin: 0 0 8px;
+}
+
+.stats-bar {
+  display: flex;
+  gap: 12px;
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+
+/* Preview Wrap */
+.preview-wrap {
+  width: 320px;
+  aspect-ratio: 160 / 144;
+  position: relative;
+}
+
+/* Recording Indicator */
+.recording-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #d33;
+  font-weight: bold;
+  font-size: 13px;
+  animation: rec-pulse 1s ease-in-out infinite;
+}
+
+.recording-indicator::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #d33;
+}
+
+@keyframes rec-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
 }

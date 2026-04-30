@@ -53,6 +53,10 @@ export interface WasmBoyEmulator {
   releaseButton(button: Button): void;
   /** Resets joypad to all-released. */
   clearJoypad(): void;
+  /** Set emulation speed multiplier (1 = normal, 2 = 2x, etc.). */
+  setSpeed(multiplier: number): void;
+  /** Force-render the current frame to the canvas (for manual tick loops). */
+  renderFrame(): Promise<void>;
   /** Resume real-time playback (windowed mode). */
   play(): Promise<void>;
   /** Pause real-time playback (windowed mode). */
@@ -103,9 +107,7 @@ export async function init(opts: InitOptions): Promise<WasmBoyEmulator> {
   await WasmBoy.config(
     {
       headless,
-      // Audio off in both modes for now; spike doesn't need it and the
-      // mobile audio context handshake adds complexity.
-      isAudioEnabled: false,
+      isAudioEnabled: !headless,
       gameboyFrameRate: 60,
       disablePauseOnHidden: true,
       enableBootROMIfAvailable: false,
@@ -140,8 +142,10 @@ export async function init(opts: InitOptions): Promise<WasmBoyEmulator> {
     await WasmBoy.pause();
   }
 
-  // Resolve the GB memory base once. Async — postMessage to the worker.
+  // Resolve memory layout constants once. Async — postMessage to the worker.
   const gbMemoryBase = await WasmBoy._getWasmConstant('GAMEBOY_INTERNAL_MEMORY_LOCATION');
+  const frameLocation = await (WasmBoy._getWasmConstant as (k: string) => Promise<number>)('FRAME_LOCATION');
+  const frameSize = await (WasmBoy._getWasmConstant as (k: string) => Promise<number>)('FRAME_SIZE');
 
   // Persistent joypad state we mutate via press/release.
   const joypad: JoypadState = {
@@ -207,6 +211,23 @@ export async function init(opts: InitOptions): Promise<WasmBoyEmulator> {
     clearJoypad: () => {
       (Object.keys(joypad) as Array<keyof JoypadState>).forEach((k) => (joypad[k] = false));
       pushJoypad();
+    },
+    setSpeed: (m) => WasmBoy.setSpeed(m),
+    renderFrame: async () => {
+      const canvas = opts.canvas;
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      const rgb = await WasmBoy._getWasmMemorySection(frameLocation, frameLocation + frameSize);
+      const pixels = 160 * 144;
+      const imageData = ctx.createImageData(160, 144);
+      for (let i = 0; i < pixels; i++) {
+        imageData.data[i * 4] = rgb[i * 3];
+        imageData.data[i * 4 + 1] = rgb[i * 3 + 1];
+        imageData.data[i * 4 + 2] = rgb[i * 3 + 2];
+        imageData.data[i * 4 + 3] = 255;
+      }
+      ctx.putImageData(imageData, 0, 0);
     },
     play: () => WasmBoy.play(),
     pause: () => WasmBoy.pause(),
