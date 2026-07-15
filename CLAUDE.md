@@ -4,15 +4,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Project Does
 
-Automatic shiny hunter for Pokémon Gen 1 (Red/Blue/Yellow). Exploits the fact that Gen 1 DVs (Determinant Values) determine shininess when transferred to Gen 2 via Time Capsule. Uses emulator save-state reloading with controlled frame jitter to brute-force the 1/8192 shiny chance.
+Automatic shiny hunter for Pokémon Gen 1 (Red/Blue/Yellow) and Gen 2 (Gold/Silver/Crystal), US and JP. Shininess is a fixed DV (Determinant Value) predicate — in Gen 1 it applies when transferring to Gen 2 via Time Capsule; in Gen 2 it is the game's own native shiny rule, so the same check covers both. Uses emulator save-state reloading with controlled frame jitter to brute-force the 1/8192 shiny chance.
 
-Two parallel implementations:
-- **Python CLI** (`src/shiny_hunter/`) — PyBoy-based, production-quality, full feature set
-- **Web frontend** (`web/`) — Next.js + WasmBoy spike, client-side only, ports core logic to TypeScript
+Single implementation: a **Python CLI** (`src/shiny_hunter/`), PyBoy-based.
+
+A Next.js + WasmBoy browser spike used to live in `web/`. It was removed —
+WasmBoy in the browser is far slower than native PyBoy, and the tool is
+throughput-bound. Recoverable from git history if ever needed.
 
 ## Commands
-
-### Python
 
 ```bash
 pip install -e ".[dev]"        # Install with dev deps
@@ -25,17 +25,10 @@ shiny-hunt verify --rom ROM --state STATE --macro MACRO   # Single-attempt verif
 shiny-hunt run --rom ROM --state STATE --macro MACRO      # Hunt until shiny
 shiny-hunt run --rom ROM --state STATE --macro MACRO --monitor  # Hunt with live grid window
 shiny-hunt resume --rom ROM --state STATE                 # Load a state and play interactively
-```
-
-### Web
-
-```bash
-cd web
-pnpm install
-pnpm run dev                   # Next.js dev server
-pnpm run build                 # Production build
-pnpm run lint                  # ESLint
-pnpm run typecheck             # TypeScript type check (tsc --noEmit)
+shiny-hunt repark --rom ROM --state STATE --macro MACRO --out-state S2 --out-macro M2  # Move checkpoint next to the DV roll (~10-20x faster attempts)
+shiny-hunt bootstrap --rom ROM --out STATE                 # Create a checkpoint (--from-state to start from an existing one)
+shiny-hunt record --rom ROM --from-state STATE --out MACRO # Record an event macro
+shiny-hunt preview --rom ROM --state SHINY_STATE           # Render a Crystal shiny preview PNG
 ```
 
 ## Architecture
@@ -44,7 +37,7 @@ pnpm run typecheck             # TypeScript type check (tsc --noEmit)
 
 `hunter.py:hunt()` drives the main reset loop: derive a seeded offset into a 65,536-frame delay window, then walk the window without replacement. Each attempt probes one pre-macro frame delay, runs the user-supplied macro, polls until the party species/DVs are readable, then checks the shiny predicate. On shiny: save emulator state and write trace JSON.
 
-Key: frame jitter is external scheduling, not the Game Boy's hardware RNG. This decouples attempt selection from emulator state and makes attempts deterministic given (master_seed, attempt_index). The macro and state are user-supplied via `--macro` and `--state`, making the tool work for any Pokémon (starters, gifts, wild encounters). Recommended workflow: run `shiny-hunt run --continue-after-shiny` to scan all delays and find every shiny (ranked by DV quality), then `shiny-hunt run --start-delay N` to jump straight to the best one.
+Key: frame jitter is external scheduling, not the Game Boy's hardware RNG. This decouples attempt selection from emulator state and makes attempts deterministic given (master_seed, attempt_index). The macro and state are user-supplied via `--macro` and `--state`, making the tool work for any Pokémon (starters, gifts, wild encounters). Recommended workflow: run `shiny-hunt repark` to move the checkpoint next to the DV roll (~10–20x faster attempts), then `shiny-hunt run --continue-after-shiny` to scan all delays and find every shiny (ranked by DV quality). Every shiny is saved as it is found, so `shiny-hunt resume --state shinies/<best>.state` loads the preferred one — there is no flag to re-run a single known delay.
 
 ### Emulator Abstraction
 
@@ -52,7 +45,7 @@ Key: frame jitter is external scheduling, not the Game Boy's hardware RNG. This 
 
 ### Game Configs
 
-Registry pattern: each `games/*.py` file defines a frozen `GameConfig` dataclass (ROM SHA-1, RAM addresses for party DVs/species, SRAM size, starters, macro filenames) and calls `register()` at import time. Lookup by SHA-1 or (game, region) key.
+Registry pattern: each `games/*.py` file defines a frozen `GameConfig` dataclass (ROM SHA-1, RAM addresses for party DVs/species, SRAM size, starters, macro filenames, generation) and calls `register()` at import time. Lookup by SHA-1 (including `alt_sha1s` aliases for revisions with identical layouts) or (game, region) key. Gen 2 configs set `generation=2`; species bytes are National Dex numbers and the DVs sit at offset 0x15 of the 48-byte party struct.
 
 ### Macros
 
@@ -62,18 +55,15 @@ Two formats, both with `.run(emu)`:
 
 ### DV Logic
 
-`dv.py` / `web/src/lib/dv.ts`: decode two bytes into 4-bit ATK/DEF/SPD/SPC + derived HP. Shiny predicate: DEF==10, SPD==10, SPC==10, ATK ∈ {2,3,6,7,10,11,14,15}.
-
-### Web Stack
-
-WasmBoy spike verifying browser-side feasibility. Ports of `dv.py`, `games/`, `macro.py`, and state serialization live in `web/src/lib/`. ROM loading supports ZIP extraction via fflate. On-screen gamepad uses responsive-gamepad. Webpack configured with `asyncWebAssembly` for WasmBoy.
+`dv.py`: decode two bytes into 4-bit ATK/DEF/SPD/SPC + derived HP. Shiny predicate: DEF==10, SPD==10, SPC==10, ATK ∈ {2,3,6,7,10,11,14,15}.
 
 ## Key Conventions
 
-- Python/web game configs are currently duplicated — long-term goal is shared JSON
-- `.state` (PyBoy) and `.wbst` (WasmBoy) save formats are not interchangeable
 - Macro `after` durations are sensitive to in-game text speed settings — always verify with `shiny-hunt verify`
-- JP ROM RAM offsets are best-effort from pret/pokered disassembly
+- Gen 1 JP ROM RAM offsets are best-effort from pret/pokered disassembly; Gen 2 addresses (US and JP) are verified — see the provenance notes in `games/gold_jp.py` / `games/crystal_jp.py`
+- Gen 2 JP Gold/Silver: only Rev 1 dumps are registered (Rev 0 WRAM layout unverified); JP Crystal is MBC30 with 64 KB SRAM
+- Gen 2 determinism requires the PyBoy fork's `rtc_lock` (pinned in pyproject): the MBC3 RTC otherwise tracks the host wall clock, so identical (state, delay) attempts diverge across runs. `Emulator` passes `rtc_lock=True` always — the in-game clock is frozen at the checkpoint's value
+- Shiny delay lists are only meaningful relative to one exact checkpoint `.state`; output filenames embed a 6-char hash of the bootstrap state for this reason
 - Save-state checkpoint must be captured **before** the DV roll (the YES prompt works)
 - Tests marked `needs_rom` require a real ROM file in `roms/`
 - `--monitor` requires tkinter (`sudo pacman -S tk` on Arch, `sudo apt install python3-tk` on Debian/Ubuntu)

@@ -2,10 +2,13 @@
 
 ![Shiny Charmander in Red](https://github.com/fsegouin/shiny-hunter/blob/c22a92786f2d036054ac260f2f59c867ebcd5a7b/demo.gif)
 
-Automatic Gen 1 shiny hunter for Pokémon Red, Blue, Green (JP), and Yellow.
+Automatic Gen 1 & 2 shiny hunter for Pokémon Red, Blue, Green (JP), Yellow,
+Gold, Silver, and Crystal (US and JP).
 Runs PyBoy headlessly, soft-resets the game thousands of times per minute, and
-saves a `.state` file the moment a Pokémon's DVs satisfy the Gen 2 transfer-shiny
-condition. Works for any Pokémon — starters, gifts, wild encounters — as long as
+saves a `.state` file the moment a Pokémon's DVs satisfy the shiny condition
+(the Gen 2 transfer-shiny rule for Gen 1 games; the native shiny rule — the
+same DV predicate — for Gen 2 games). Works for any Pokémon — starters, gifts,
+wild encounters — as long as
 you can create a save-state checkpoint before the DV roll and a macro that
 triggers it. On a decent computer, this process can take between 30 seconds to 10 minutes,
 depending on if you want to keep searching for better DVs or if you settle
@@ -112,19 +115,21 @@ that variability on purpose.
 
 ### Is Gen 2 RNG the same?
 
-For *our* use case, **Gen 2's RNG is never invoked**. We're not catching
+For a Gen 1 hunt, **Gen 2's RNG is never invoked**. We're not catching
 the Pokémon in Gen 2 — we're catching it in Gen 1 and transferring via
 the Time Capsule. Shininess in Gen 2 is checked as a **static predicate
 over the existing DVs**: Def/Spd/Spc DV all equal 10, Atk DV is in
 `{2, 3, 6, 7, 10, 11, 14, 15}`. No roll happens at transfer time.
 
-For native Gen 2 hunting (e.g., shiny hunting Totodile in Crystal),
-Gold/Silver/Crystal use a very similar mechanism: an `hRandomAdd`
-/`hRandomSub` pair mixed with `rDIV` on every call. It's the same
-fundamental design, with minor differences in mixing constants and in
-*where* the RNG is consulted during encounter generation. So if we
-later extend this tool to hunt natively in Gen 2, the same "inject
-frame jitter before the decisive A-press" trick applies.
+Native Gen 2 hunting (e.g., shiny hunting Totodile in Crystal) **is also
+supported**, and it works because Gold/Silver/Crystal use a very similar
+mechanism: an `hRandomAdd`/`hRandomSub` pair mixed with `rDIV` on every
+call. It's the same fundamental design, with minor differences in mixing
+constants and in *where* the RNG is consulted during encounter
+generation. The same "inject frame jitter before the decisive A-press"
+trick applies unchanged, and the shiny predicate is identical — in Gen 2
+it's simply the game's own rule rather than a transfer condition, so the
+shiny is visible in-game the moment you find it (no Time Capsule needed).
 
 ## This sounds like a lot of faff for something you could have hacked?
 
@@ -161,7 +166,12 @@ source .venv/bin/activate.fish # fish
 pip install -e .[dev]
 ```
 
-Requires Python ≥ 3.11. PyBoy 2.7+ is pulled in as a dependency.
+Requires Python ≥ 3.11. PyBoy is pulled in as a dependency from a fork
+([fsegouin/PyBoy@shiny-hunter-deps](https://github.com/fsegouin/PyBoy/tree/shiny-hunter-deps)),
+an integration branch merging `fix/mbc30-support` (MBC30 support for JP Crystal
+plus a serial transfer-completion fix) and `feat/rtc-lock` (`rtc_lock` —
+required for deterministic Gen 2 hunts, see Caveats). Both are pending upstream
+PRs.
 
 ## Bring your own ROM
 
@@ -177,7 +187,7 @@ language/region, drop a new file in `src/shiny_hunter/games/` mirroring
 
 ## Onboarding flow
 
-Three steps: checkpoint, record, hunt. Works for any Pokémon whose DV roll
+Five steps: checkpoint, record, verify, re-park (optional), hunt. Works for any Pokémon whose DV roll
 you can park in front of — starters, gifts (Eevee, Lapras, Hitmonlee/chan),
 legendaries, or any static encounter.
 
@@ -192,6 +202,17 @@ shiny-hunt bootstrap \
   --out states/red_us_eevee.state
 # PyBoy window opens. Play to just before the DV roll.
 # Close the window — state is saved.
+```
+
+Pass `--from-state` to start from an existing save-state instead of power-on —
+handy for nudging a checkpoint a little closer to the DV roll by hand (for the
+automated version, see step 4):
+
+```bash
+shiny-hunt bootstrap \
+  --rom roms/red.gb \
+  --from-state states/red_us_eevee.state \
+  --out states/red_us_eevee2.state
 ```
 
 ### 2. Record a macro
@@ -235,18 +256,47 @@ shiny-hunt verify \
 # Plays the macro at 60 fps, then pauses. Close the window to see DVs.
 ```
 
-### 4. Hunt
+### 4. Re-park the checkpoint (optional, but ~10–20x faster)
+
+Every frame between your checkpoint and the DV roll is re-emulated on
+*every* attempt — and the roll often happens much later than you'd guess
+(Crystal rolls the starter ~800 frames *after* the YES confirm, mid-dialog
+inside GivePokemon; you can't practically park there by hand). `repark`
+finds the roll by replaying your macro, saves a new state just before the
+decisive press, writes a short rebased macro, and verifies that frame
+jitter still varies the DVs from the new park point:
+
+```bash
+shiny-hunt repark \
+  --rom roms/red.gb \
+  --state states/red_us_eevee.state \
+  --macro macros/red_us_eevee.events.json \
+  --out-state states/red_us_eevee_parked.state \
+  --out-macro macros/red_us_eevee_parked.events.json
+# species readable at frame 823 of the original macro
+# trying park point at frame 819 (before press at 820)...
+# park point valid — probe DVs vary
+# per-attempt emulation: ~823 -> ~4 frames
+```
+
+Measured on a Crystal (JP) starter hunt this took the total rate from
+~220 to ~2,200 attempts/s — a full 65,536-delay sweep in ~30 seconds.
+Note the parked state is a **new checkpoint**: shiny delays found from the
+old one don't carry over (the delay window is per-checkpoint).
+
+### 5. Hunt
 
 ```bash
 shiny-hunt run \
   --rom roms/red.gb \
-  --state states/red_us_eevee.state \
-  --macro macros/red_us_eevee.events.json \
+  --state states/red_us_eevee_parked.state \
+  --macro macros/red_us_eevee_parked.events.json \
   --headless
 # Scans frame delays sequentially across all cores.
-# Stops at the first shiny and saves:
-#   shinies/eevee_us_delay042000.state       — resume with `shiny-hunt resume`
-#   shinies/eevee_us_delay042000.trace.json  — for `shiny-hunt replay`
+# Stops at the first shiny and saves (filename embeds a short hash of the
+# checkpoint state, so hunts from different checkpoints never collide):
+#   shinies/eevee_us_1a2b3c_042000.state       — resume with `shiny-hunt resume`
+#   shinies/eevee_us_1a2b3c_042000.trace.json  — for `shiny-hunt replay`
 ```
 
 Use `--continue-after-shiny` to scan the entire delay window and find
@@ -256,8 +306,8 @@ ranked summary (by ATK DV, highest first) is printed at the end:
 ```bash
 shiny-hunt run \
   --rom roms/red.gb \
-  --state states/red_us_eevee.state \
-  --macro macros/red_us_eevee.events.json \
+  --state states/red_us_eevee_parked.state \
+  --macro macros/red_us_eevee_parked.events.json \
   --continue-after-shiny --headless
 # Example output:
 #   shiny! EEVEE — delay=42,000 ATK=15 DEF=10 SPD=10 SPC=10 HP=8 (worker 3)
@@ -303,7 +353,7 @@ Other useful flags:
 | `--crystal-state FILE` | Crystal template save-state for preview generation (default: `states/crystal_template.state`) |
 | `--crystal-macro FILE` | Crystal macro for preview generation (default: `macros/crystal_preview.events.json`) |
 
-### 5. Monitor the hunt
+### 6. Monitor the hunt
 
 Pass `--monitor` to open a live tkinter window that tiles every worker's
 screen in a grid. Each tile shows the Game Boy framebuffer overlaid with
@@ -331,7 +381,7 @@ shiny-hunt run \
   --record shinies/hunt.gif
 ```
 
-### 6. Replay a found shiny
+### 7. Replay a found shiny
 
 The trace pins ROM SHA-1, state SHA-1, master seed, and attempt index. With
 the same ROM, state, and macro, the run is deterministic:
@@ -340,17 +390,17 @@ the same ROM, state, and macro, the run is deterministic:
 shiny-hunt replay \
   --rom roms/red.gb \
   --macro macros/red_us_eevee.events.json \
-  --trace shinies/eevee_us_000042.trace.json
+  --trace shinies/eevee_us_1a2b3c_042000.trace.json
 ```
 
-### 7. Resume a found shiny
+### 8. Resume a found shiny
 
 ```bash
-shiny-hunt resume --rom roms/red.gb --state shinies/eevee_us_004200.state
+shiny-hunt resume --rom roms/red.gb --state shinies/eevee_us_1a2b3c_042000.state
 # Opens PyBoy windowed. Save in-game, check stats, keep playing.
 ```
 
-### 8. Generate a Crystal shiny preview
+### 9. Generate a Crystal shiny preview
 
 If you have a Pokémon Crystal ROM, you can generate a screenshot showing
 what the shiny looks like in Gen 2 — complete with the Crystal sprite and
@@ -370,8 +420,8 @@ optional:
 ```bash
 shiny-hunt preview \
   --rom roms/red.gb \
-  --state shinies/eevee_us_004200.state
-# Writes shinies/eevee_us_004200.png
+  --state shinies/eevee_us_1a2b3c_042000.state
+# Writes shinies/eevee_us_1a2b3c_042000.png
 ```
 
 When Crystal assets are present at the default paths, `shiny-hunt run`
@@ -403,15 +453,16 @@ shiny-hunt run \
 
 ```
 src/shiny_hunter/
-  cli.py             entry point (run | bootstrap | verify | replay | record | preview | list-games)
+  cli.py             entry point (run | bootstrap | verify | replay | record | repark | preview | resume | list-games)
   hunter.py          main reset loop + replay
   emulator.py        PyBoy 2.x wrapper (banked SRAM dump, save/load state from bytes)
   recorder.py        windowed-mode joypad polling -> event-log macro
   dv.py              decode_dvs(), is_shiny()  — pure
-  pokemon.py         Gen 1 internal species index -> name (all 151)
+  pokemon.py         species index -> name (Gen 1 internal index / Gen 2 dex number)
   macro.py           YAML step macros + JSON event-log macros
   config.py          GameConfig + ROM-hash registry
   polling.py         early-exit species polling (run_until_species)
+  repark.py          move a checkpoint next to the DV roll + rebase its macro
   workers.py         parallel hunt workers (multiprocessing)
   delays.py          frame-delay scheduling (seed_offset)
   trace.py           per-attempt JSON traces (schema v2)
@@ -421,19 +472,43 @@ src/shiny_hunter/
   preview.py         Crystal shiny preview PNG generation
   gbfont.py          Pokémon Red bitmap font renderer for the monitor overlay
   gen1_party.py      Gen 1 party structure helpers
+  gen2_party.py      Gen 2 party structure helpers (raw 48-byte struct reads)
   gen2_convert.py    Gen 1 → Gen 2 data conversion
-  gen2_data.py       Gen 2 Pokémon data tables (species, types, moves)
-  games/             per-(game, region) configs (red_us, red_jp, blue_us, ...)
-  macros/            per-(game, region) save macros (.yaml)
+  gen2_data.py       Gen 2 Pokémon data tables (species, names, base stats)
+  games/             per-(game, region) configs (red_us, gold_us, crystal_jp, ...)
+  macros/            per-(game, region) starter + save macros (.yaml)
+  data/              bundled assets (Pokémon Red font, shiny icon)
 ```
 
 ## Caveats
 
-- **JP RAM offsets are best-effort.** `red_jp.py`, `blue_jp.py`, `green_jp.py`,
-  and `yellow_jp.py` ship with addresses derived from pret/pokered's JP build
-  target. Verify against the disassembly's symbol file before running long
-  sessions, or read the value at the supposed `party_dv_addr` and confirm it
-  changes across attempts.
+- **Gen 1 JP RAM offsets are best-effort.** `red_jp.py`, `blue_jp.py`,
+  `green_jp.py`, and `yellow_jp.py` ship with addresses derived from
+  pret/pokered's JP build target. Verify against the disassembly's symbol file
+  before running long sessions, or read the value at the supposed
+  `party_dv_addr` and confirm it changes across attempts.
+- **Gen 2 addresses are verified.** US Gold/Silver/Crystal addresses come from
+  pret's build-verified symbol files; JP addresses were cross-checked against
+  the retail dumps by opcode-literal frequency analysis (see the docstrings in
+  `games/gold_jp.py` and `games/crystal_jp.py`). Only the JP Rev 1
+  Gold/Silver dumps are registered — Rev 0's WRAM layout is unverified.
+- **Gen 2 shinies are native.** No Time Capsule transfer is needed: the DV
+  predicate is the game's own shiny rule, so the found Pokémon is shiny
+  in its own game.
+- **Gen 2 needs a frozen RTC for determinism.** Gold/Silver/Crystal poll the
+  MBC3 real-time clock constantly, and stock PyBoy derives the RTC from the
+  host wall clock — so the same (state, delay) attempt can roll different DVs
+  depending on when you run it. The pinned PyBoy fork adds `rtc_lock`, which
+  this tool always enables: the in-game clock freezes, and every delay→DV
+  mapping becomes reproducible forever.
+- **Delay numbers are per-checkpoint.** A shiny's delay is only meaningful
+  relative to the exact `.state` it was found from — that's why output
+  filenames embed a short hash of the bootstrap state. A new checkpoint (even
+  one frame later) gives a completely fresh 65,536-roll window, which is also
+  the way to keep hunting for a better spread (ATK 15 / HP 8 is the ceiling).
+- **Slow hunts?** Run `shiny-hunt repark` (onboarding step 4) — it moves the
+  checkpoint to within a few frames of the DV roll and typically speeds
+  attempts up ~10–20x.
 - **Macro tuning.** If `verify` reports `species=unknown`, the macro stopped
   too early — re-record with more frames after the last button press.
   For gift pokemons, it is usually safe to stop the macro after you have either

@@ -36,7 +36,7 @@ def update_frames(frames: dict[int, WorkerFrame], new: WorkerFrame) -> None:
 
 
 class MonitorWindow:
-    def __init__(self, num_workers: int) -> None:
+    def __init__(self, num_workers: int, generation: int = 1) -> None:
         import tkinter as tk
         from PIL import Image, ImageDraw, ImageTk
 
@@ -46,6 +46,7 @@ class MonitorWindow:
         self._ImageTk = ImageTk
 
         self.num_workers = num_workers
+        self.generation = generation
         self.cols, self.rows = grid_size(num_workers)
         self.cell_w = CELL_W + BORDER * 2
         self.cell_h = CELL_H + BORDER * 2
@@ -156,11 +157,10 @@ class MonitorWindow:
             self._closed = True
             self._root.destroy()
 
-    @staticmethod
-    def _make_textbox(wf: WorkerFrame) -> "Image.Image":
+    def _make_textbox(self, wf: WorkerFrame) -> "Image.Image":
         from .gbfont import render_textbox, GB_SCREEN_TILES_W, SHINY_CHAR
 
-        name = pokemon.species_name(wf.species).upper()
+        name = pokemon.species_name(wf.species, self.generation).upper()
         a, d, s, c = wf.dvs
         hp = ((a & 1) << 3) | ((d & 1) << 2) | ((s & 1) << 1) | (c & 1)
         lines = [
@@ -195,6 +195,10 @@ class GifRecorder:
     @property
     def should_stop(self) -> bool:
         return self._done
+
+    @property
+    def frame_count(self) -> int:
+        return len(self._frames)
 
     def capture(self, img: "Image.Image") -> None:
         if self._done:

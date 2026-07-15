@@ -1,12 +1,11 @@
 """GameConfig + ROM-hash-based registry."""
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from pathlib import Path
+from dataclasses import dataclass
 from typing import Literal, Mapping
 
 Region = Literal["us", "jp", "eu", "de", "fr", "it", "es"]
-GameName = Literal["red", "blue", "green", "yellow"]
+GameName = Literal["red", "blue", "green", "yellow", "gold", "silver", "crystal"]
 
 
 @dataclass(frozen=True)
@@ -18,7 +17,9 @@ class GameConfig:
 
     The party DV byte at `party_dv_addr` holds (Atk<<4 | Def); the next byte
     holds (Spd<<4 | Spc). For Pokémon Red/Blue (US), party slot 0 base is
-    $D16B and the DV bytes are at offset 0x1B/0x1C → $D186/$D187.
+    $D16B and the DV bytes are at offset 0x1B/0x1C → $D186/$D187. Gen 2
+    games use the same packing; the DVs live at offset 0x15 of the 48-byte
+    party struct instead.
     """
 
     game: GameName
@@ -33,6 +34,8 @@ class GameConfig:
     starter_macro: str                     # filename under shiny_hunter/macros/
     save_macro: str                        # in-game SAVE macro (post-shiny commit)
     post_macro_settle_frames: int = 120
+    generation: int = 1                    # 1 = RBGY, 2 = GSC
+    alt_sha1s: tuple[str, ...] = ()        # other dumps with identical RAM layout
 
 
 @dataclass(frozen=True)
@@ -46,13 +49,15 @@ _BY_KEY: dict[tuple[str, str], GameConfig] = {}
 
 
 def register(config: GameConfig) -> None:
-    sha = config.rom_sha1.lower()
-    if sha in _BY_SHA1:
-        raise ValueError(f"duplicate ROM SHA-1 in registry: {sha}")
     key = (config.game, config.region)
     if key in _BY_KEY:
         raise ValueError(f"duplicate (game, region) in registry: {key}")
-    _BY_SHA1[sha] = config
+    shas = [sha.lower() for sha in (config.rom_sha1, *config.alt_sha1s)]
+    for sha in shas:
+        if sha in _BY_SHA1:
+            raise ValueError(f"duplicate ROM SHA-1 in registry: {sha}")
+    for sha in shas:
+        _BY_SHA1[sha] = config
     _BY_KEY[key] = config
 
 
@@ -65,13 +70,15 @@ def by_key(game: str, region: str) -> GameConfig | None:
 
 
 def all_configs() -> list[GameConfig]:
-    return list(_BY_SHA1.values())
+    return list(_BY_KEY.values())
 
 
 def _load_builtin() -> None:
     # Imported for side-effect: each module calls `register(...)`.
     from .games import red_us, blue_us, yellow_us  # noqa: F401
     from .games import red_jp, blue_jp, green_jp, yellow_jp  # noqa: F401
+    from .games import gold_us, silver_us, crystal_us  # noqa: F401
+    from .games import gold_jp, silver_jp, crystal_jp  # noqa: F401
 
 
 _load_builtin()

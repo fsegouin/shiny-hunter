@@ -4,6 +4,9 @@ The internal IDs are NOT in Pokédex order. They're the raw bytes stored
 in party/box RAM and used throughout the Gen 1 engine. Sourced from
 pret/pokered constants/pokemon_constants.asm.
 """
+from __future__ import annotations
+
+from .gen2_data import GEN2_SPECIES_NAMES
 
 SPECIES_NAMES: dict[int, str] = {
     0x01: "rhydon",
@@ -160,5 +163,6 @@ SPECIES_NAMES: dict[int, str] = {
 }
 
 
-def species_name(species_id: int) -> str:
-    return SPECIES_NAMES.get(species_id, f"unknown_0x{species_id:02x}")
+def species_name(species_id: int, generation: int = 1) -> str:
+    table = GEN2_SPECIES_NAMES if generation == 2 else SPECIES_NAMES
+    return table.get(species_id, f"unknown_0x{species_id:02x}")

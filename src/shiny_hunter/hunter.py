@@ -8,7 +8,7 @@ from typing import Callable
 
 from . import macro, pokemon, trace
 from .config import GameConfig
-from .delays import DEFAULT_DELAY_WINDOW, seed_offset
+from .delays import DEFAULT_DELAY_WINDOW, RELOAD_BATCH, seed_offset
 from .dv import DVs, is_shiny
 from .emulator import Emulator
 from .polling import run_until_species
@@ -54,14 +54,25 @@ def hunt(
         if current_delay:
             emu.tick(current_delay)
 
+        # Amortize expensive full-state saves: snapshot every RELOAD_BATCH
+        # delays, reach intermediate delays via load(base) + tick(offset).
+        base_state = None
+        base_delay = 0
+        attempts_since_base = RELOAD_BATCH  # force a save on first attempt
+
         while n < max_attempts:
             n += 1
             delay = current_delay
-            pre_macro_state = emu.save_state_bytes()
+            if attempts_since_base >= RELOAD_BATCH:
+                base_state = emu.save_state_bytes()
+                base_delay = delay
+                attempts_since_base = 0
+            attempts_since_base += 1
             species, dvs, _ = run_until_species(
                 emu, hunt_macro,
                 species_addr=species_addr if species_addr is not None else cfg.party_species_addr,
                 dv_addr=dv_addr if dv_addr is not None else cfg.party_dv_addr,
+                guard_wram_bank=cfg.generation == 2,
             )
             shiny = is_shiny(dvs)
             if on_attempt is not None:
@@ -90,10 +101,13 @@ def hunt(
             if n < max_attempts:
                 current_delay = (current_delay + 1) % delay_window
                 if current_delay == 0:
+                    # Wrapped around the delay window: restart from the
+                    # bootstrap state and force a fresh base snapshot.
                     emu.load_state(state_bytes)
+                    attempts_since_base = RELOAD_BATCH
                 else:
-                    emu.load_state(pre_macro_state)
-                    emu.tick(1)
+                    emu.load_state(base_state)
+                    emu.tick(current_delay - base_delay)
 
     return HuntResult(attempts=n, shinies_found=shinies, elapsed_s=time.monotonic() - t0)
 
@@ -112,10 +126,17 @@ def _persist_shiny(
     species: int,
     dvs: DVs,
 ) -> Path:
-    """On shiny: save emulator state + write trace. Returns the saved state path."""
-    name = pokemon.species_name(species)
-    state_name = f"{name}_{cfg.region}_{attempt:06d}.state"
-    trace_name = f"{name}_{cfg.region}_{attempt:06d}.trace.json"
+    """On shiny: save emulator state + write trace. Returns the saved state path.
+
+    Filenames embed a short hash of the bootstrap state: delay numbers are
+    only meaningful relative to one exact checkpoint, so two hunts from
+    different checkpoints finding a shiny at the same delay must not
+    overwrite each other.
+    """
+    name = pokemon.species_name(species, cfg.generation)
+    sha6 = trace.sha1_of_bytes(state_bytes)[:6]
+    state_name = f"{name}_{cfg.region}_{sha6}_{delay:06d}.state"
+    trace_name = f"{name}_{cfg.region}_{sha6}_{delay:06d}.trace.json"
 
     saved = out_dir / state_name
     emu.save_state(saved)
@@ -168,5 +189,6 @@ def replay_attempt(
             emu, hunt_macro,
             species_addr=species_addr if species_addr is not None else cfg.party_species_addr,
             dv_addr=dv_addr if dv_addr is not None else cfg.party_dv_addr,
+            guard_wram_bank=cfg.generation == 2,
         )
     return species, dvs

@@ -13,9 +13,9 @@ from typing import Callable
 import numpy as np
 
 from . import macro
-from .delays import DEFAULT_DELAY_WINDOW
+from .delays import DEFAULT_DELAY_WINDOW, RELOAD_BATCH
 from .dv import is_shiny
-from .emulator import Emulator
+from .emulator import Emulator, RtcLockUnavailableWarning
 from .polling import run_until_species
 
 
@@ -69,8 +69,13 @@ def _worker_loop(
     stop_event: MPEvent,
     stop_after_first: bool,
     frame_queue: Queue | None = None,
+    guard_wram_bank: bool = False,
 ) -> None:
     warnings.filterwarnings("ignore")
+    # Keep the rtc_lock warning visible: it is the only signal that Gen 2
+    # hunts have silently become non-reproducible, and the blanket filter
+    # above would otherwise swallow it in every worker.
+    warnings.filterwarnings("always", category=RtcLockUnavailableWarning)
     hunt_macro = macro.load(Path(macro_path))
     n = 0
     latest_species = 0
@@ -82,17 +87,27 @@ def _worker_loop(
         if start_delay:
             emu.tick(start_delay)
 
+        # Full state saves are expensive (~20 ms for a CGB game) relative
+        # to a frame of emulation (~0.06 ms), so instead of snapshotting
+        # every attempt we save a base state every RELOAD_BATCH delays and
+        # reach intermediate delays via load(base) + tick(offset).
+        base_state = None
+        base_delay = start_delay
+
         for delay in range(start_delay, end_delay):
             if stop_event.is_set():
                 break
 
             n += 1
-            pre_macro_state = emu.save_state_bytes()
+            if (delay - start_delay) % RELOAD_BATCH == 0:
+                base_state = emu.save_state_bytes()
+                base_delay = delay
 
             species, dvs, _ = run_until_species(
                 emu, hunt_macro,
                 species_addr=species_addr,
                 dv_addr=dv_addr,
+                guard_wram_bank=guard_wram_bank,
             )
             latest_species = species
             latest_dvs = (dvs.atk, dvs.def_, dvs.spd, dvs.spc)
@@ -100,7 +115,7 @@ def _worker_loop(
             if frame_queue is not None:
                 shiny = is_shiny(dvs)
                 try:
-                    screen = emu._pyboy.screen.ndarray[:, :, :3].copy()
+                    screen = emu.screen_ndarray()[:, :, :3].copy()
                     frame_queue.put_nowait(WorkerFrame(
                         worker_id=worker_id,
                         screen=screen,
@@ -137,8 +152,8 @@ def _worker_loop(
                     break
 
             if delay + 1 < end_delay:
-                emu.load_state(pre_macro_state)
-                emu.tick(1)
+                emu.load_state(base_state)
+                emu.tick(delay + 1 - base_delay)
 
     progress_queue.put(WorkerProgress(
         worker_id=worker_id,
@@ -164,6 +179,7 @@ def hunt_parallel(
     delay_window: int = DEFAULT_DELAY_WINDOW,
     stop_after_first: bool = True,
     frame_queue: Queue | None = None,
+    guard_wram_bank: bool = False,
 ) -> ParallelHuntResult:
     if num_workers is None:
         num_workers = max(1, (os.cpu_count() or 2) - 1)
@@ -199,6 +215,7 @@ def hunt_parallel(
                 stop_event,
                 stop_after_first,
                 frame_queue,
+                guard_wram_bank,
             ),
             daemon=True,
         )
