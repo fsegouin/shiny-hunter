@@ -275,7 +275,7 @@ async function runHunt(
   console.log(tag, 'phase 1: instantiating core...');
   const core = await instantiateCore(wasmBytes);
   loadRom(core, rom);
-  configureCore(core);
+  configureCore(core, rom);
   console.log(tag, 'phase 1: core ready');
 
   // 2. Write bootstrap state and tick forward to this worker's slice start.

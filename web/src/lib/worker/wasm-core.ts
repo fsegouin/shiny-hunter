@@ -260,8 +260,17 @@ export function loadRom(core: WasmCore, romBytes: Uint8Array): void {
 const HEADLESS_CONFIG: [number, number, number, number, number, number, number, number, number, number] =
   [0, 0, 1, 1, 1, 1, 0, 0, 0, 0];
 
-export function configureCore(core: WasmCore): void {
-  core.exports.config(...HEADLESS_CONFIG);
+const IS_GBC_INDEX = 1;
+
+/** CGB support flag from the cartridge header ($143 bit 7). */
+function romIsGbc(romBytes: Uint8Array): boolean {
+  return romBytes.length > 0x143 && (romBytes[0x143] & 0x80) !== 0;
+}
+
+export function configureCore(core: WasmCore, romBytes: Uint8Array): void {
+  const cfg: typeof HEADLESS_CONFIG = [...HEADLESS_CONFIG];
+  cfg[IS_GBC_INDEX] = romIsGbc(romBytes) ? 1 : 0;
+  core.exports.config(...cfg);
 }
 
 // ---------------------------------------------------------------------------

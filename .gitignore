@@ -1,3 +1,6 @@
+# macOS
+.DS_Store
+
 # Python
 __pycache__/
 *.py[cod]
@@ -21,6 +24,12 @@ shinies/*
 *.gbc
 *.sav
 *.state
+# PyBoy battery/RTC sidecars written next to the ROM (Gen 2 MBC3)
+*.ram
+*.rtc
+
+# one-flow verification caches
+.claude/one-flow/verify-cache.json
 
 # IDE
 .idea/

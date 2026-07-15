@@ -60,3 +60,29 @@ def test_base_stats_mewtwo():
 
 def test_base_stats_covers_151():
     assert set(GEN2_BASE_STATS.keys()) == set(range(1, 152))
+
+
+def test_gen2_species_names_covers_251():
+    from shiny_hunter.gen2_data import GEN2_SPECIES_NAMES
+
+    assert set(GEN2_SPECIES_NAMES.keys()) == set(range(1, 252))
+
+
+def test_gen2_species_names_spot_checks():
+    from shiny_hunter.gen2_data import GEN2_SPECIES_NAMES
+
+    assert GEN2_SPECIES_NAMES[1] == "bulbasaur"
+    assert GEN2_SPECIES_NAMES[152] == "chikorita"
+    assert GEN2_SPECIES_NAMES[155] == "cyndaquil"
+    assert GEN2_SPECIES_NAMES[158] == "totodile"
+    assert GEN2_SPECIES_NAMES[251] == "celebi"
+
+
+def test_species_name_generation_dispatch():
+    from shiny_hunter.pokemon import species_name
+
+    # 0x99 is Bulbasaur's Gen 1 internal index; 153 is Bayleef's dex number.
+    assert species_name(0x99) == "bulbasaur"
+    assert species_name(0x99, generation=1) == "bulbasaur"
+    assert species_name(153, generation=2) == "bayleef"
+    assert species_name(0xFE, generation=2) == "unknown_0xfe"

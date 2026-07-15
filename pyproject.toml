@@ -5,14 +5,19 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "shiny-hunter"
 version = "0.1.0"
-description = "Automatic shiny hunter for Pokémon Gen 1 (Red/Blue/Yellow) via PyBoy"
+description = "Automatic shiny hunter for Pokémon Gen 1 & 2 (Red/Blue/Yellow/Gold/Silver/Crystal) via PyBoy"
 requires-python = ">=3.11"
 dependencies = [
-    "pyboy>=2.7,<3",
+    # Integration branch merging fix/mbc30-support (MBC30 + serial fix) and
+    # feat/rtc-lock (deterministic RTC) — both are pending upstream PRs.
+    "pyboy @ git+https://github.com/fsegouin/PyBoy.git@shiny-hunter-deps",
     "click>=8.1",
     "rich>=13.7",
     "pyyaml>=6.0",
     "Pillow>=10.0",
+    # Imported directly by workers.py (worker screen frames); also a PyBoy
+    # transitive dep, but declared here so the import is not accidental.
+    "numpy>=1.24",
 ]
 
 [project.optional-dependencies]

@@ -7,7 +7,16 @@ the PyBoy import isolated so tests of pure modules don't pull it in.
 from __future__ import annotations
 
 import io
+import warnings
 from pathlib import Path
+
+
+class RtcLockUnavailableWarning(UserWarning):
+    """PyBoy lacks rtc_lock, so RTC-polling games are not reproducible.
+
+    Its own category so worker processes can keep it visible while still
+    silencing PyBoy/SDL import noise.
+    """
 
 
 class Emulator:
@@ -24,7 +33,26 @@ class Emulator:
         from pyboy import PyBoy  # imported lazily
 
         window = "null" if headless else "SDL2"
-        self._pyboy = PyBoy(str(rom_path), window=window, sound_emulated=sound)
+        try:
+            # rtc_lock freezes the MBC3/MBC30 real-time clock (fork feature).
+            # Without it the RTC tracks the host wall clock, so Gen 2 games —
+            # which poll the clock constantly — produce different DV rolls for
+            # the same (state, delay) depending on when the hunt runs, breaking
+            # trace replay and delay reuse.
+            self._pyboy = PyBoy(str(rom_path), window=window, sound_emulated=sound, rtc_lock=True)
+        except (KeyError, TypeError) as e:
+            # Stock PyBoy routes unknown kwargs into **kwargs and rejects them
+            # with KeyError("Unknown keyword argument: rtc_lock"). Anything not
+            # naming rtc_lock is a real error (e.g. an unknown MBC lookup) and
+            # must not be masked by the fallback.
+            if "rtc_lock" not in str(e):
+                raise
+            warnings.warn(
+                "PyBoy without rtc_lock support: Gen 2 hunts will not be "
+                "reproducible across runs (install the pinned PyBoy fork).",
+                RtcLockUnavailableWarning,
+            )
+            self._pyboy = PyBoy(str(rom_path), window=window, sound_emulated=sound)
         self._realtime = realtime
         if headless:
             # null window defaults to unlimited speed already; explicit for clarity.
@@ -48,6 +76,14 @@ class Emulator:
 
     def button_release(self, key: str) -> None:
         self._pyboy.button_release(key)
+
+    def screen_ndarray(self):
+        """Current framebuffer as a numpy array (H, W, 4) in RGBA order.
+
+        The array is a live view into PyBoy's buffer — copy it before the
+        next tick() if it needs to outlive the frame.
+        """
+        return self._pyboy.screen.ndarray
 
     def button_is_pressed(self, key: str) -> bool:
         """Read the Game Boy joypad register to check if a button is pressed.

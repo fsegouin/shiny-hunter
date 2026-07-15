@@ -1,6 +1,7 @@
 """shiny-hunt CLI."""
 from __future__ import annotations
 
+import json
 import os
 import time
 from pathlib import Path
@@ -42,20 +43,21 @@ def _resolve_config(rom: Path, game: str | None, region: str | None) -> GameConf
 
 @click.group()
 def main() -> None:
-    """Automatic Gen 1 shiny hunter."""
+    """Automatic Gen 1 & 2 shiny hunter."""
 
 
 @main.command("list-games")
 def list_games() -> None:
     """Print the registered (game, region, sha1) entries."""
-    table = Table(title="Registered Pokémon Gen 1 ROMs")
+    table = Table(title="Registered Pokémon Gen 1 & 2 ROMs")
     table.add_column("game")
     table.add_column("region")
+    table.add_column("gen")
     table.add_column("sha1")
     table.add_column("starters")
     for c in cfg_mod.all_configs():
         names = ", ".join(sorted(c.starters.values()))
-        table.add_row(c.game, c.region, c.rom_sha1, names)
+        table.add_row(c.game, c.region, str(c.generation), c.rom_sha1, names)
     Console().print(table)
 
 
@@ -64,7 +66,7 @@ def list_games() -> None:
     "--rom",
     required=True,
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
-    help="Path to the Game Boy ROM (.gb). Region is auto-detected from the SHA-1.",
+    help="Path to the Game Boy ROM (.gb/.gbc). Region is auto-detected from the SHA-1.",
 )
 @click.option(
     "--out",
@@ -72,7 +74,15 @@ def list_games() -> None:
     type=click.Path(dir_okay=False, path_type=Path),
     help="Where to write the save-state file (e.g. states/red_us_eevee.state).",
 )
-def bootstrap(rom: Path, out: Path) -> None:
+@click.option(
+    "--from-state",
+    "from_state",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    default=None,
+    help="Start from an existing save-state instead of power-on. Useful to "
+    "re-park a checkpoint closer to the DV roll (shorter macro = faster hunts).",
+)
+def bootstrap(rom: Path, out: Path, from_state: Path | None) -> None:
     """Open a windowed PyBoy. Play to just before the DV roll, then close the window to save."""
     out.parent.mkdir(parents=True, exist_ok=True)
 
@@ -80,6 +90,8 @@ def bootstrap(rom: Path, out: Path) -> None:
     click.echo("Play to just before the DV roll, then close the window.")
     emu = Emulator(rom, headless=False)
     try:
+        if from_state is not None:
+            emu.load_state(from_state.read_bytes())
         while emu.tick(1, render=True):
             pass
         emu.save_state(out)
@@ -101,6 +113,7 @@ def _verify_windowed(cfg: GameConfig, rom: Path, state_path: Path, macro_path: P
             emu, hunt_macro,
             species_addr=species_addr,
             dv_addr=dv_addr,
+            guard_wram_bank=cfg.generation == 2,
         )
 
         click.echo("Macro complete — inspect the game state. Close the PyBoy window to continue.")
@@ -115,7 +128,7 @@ def _verify_windowed(cfg: GameConfig, rom: Path, state_path: Path, macro_path: P
     "--rom",
     required=True,
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
-    help="Path to the Game Boy ROM (.gb).",
+    help="Path to the Game Boy ROM (.gb/.gbc).",
 )
 @click.option(
     "--state",
@@ -171,7 +184,7 @@ def verify(rom: Path, state_path: Path, macro_path: Path, game: str | None, regi
             species_addr=species_addr,
             dv_addr=dv_addr,
         )
-    name = pokemon.species_name(species)
+    name = pokemon.species_name(species, cfg.generation)
     click.echo(f"species: 0x{species:02X} ({name})")
     click.echo(f"DVs:     atk={dvs.atk} def={dvs.def_} spd={dvs.spd} spc={dvs.spc} hp={dvs.hp}")
 
@@ -182,7 +195,7 @@ _CRYSTAL_MACRO_DEFAULT = Path("macros/crystal_preview.events.json")
 
 
 def _make_preview_callback(
-    gen1_rom: Path,
+    hunt_rom: Path,
     crystal_rom: Path | None,
     crystal_state: Path | None,
     crystal_macro: Path | None,
@@ -201,7 +214,7 @@ def _make_preview_callback(
         out_png = shiny_state_path.with_suffix(".png")
         try:
             generate_preview(
-                gen1_rom=gen1_rom,
+                hunt_rom=hunt_rom,
                 shiny_state=shiny_state_path,
                 crystal_rom=crystal_rom,
                 crystal_state=crystal_state,
@@ -220,7 +233,7 @@ def _make_preview_callback(
     "--rom",
     required=True,
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
-    help="Path to the Game Boy ROM (.gb).",
+    help="Path to the Game Boy ROM (.gb/.gbc).",
 )
 @click.option(
     "--state",
@@ -252,7 +265,7 @@ def _make_preview_callback(
     type=click.Path(file_okay=False, path_type=Path),
     default=Path("shinies"),
     show_default=True,
-    help="Directory where .sav and .trace.json files are written when a shiny is found.",
+    help="Directory where .state and .trace.json files are written when a shiny is found.",
 )
 @click.option(
     "--headless/--window",
@@ -345,6 +358,8 @@ def run(
         raise click.ClickException("--monitor cannot be combined with --window")
 
     state_bytes = state_path.read_bytes()
+    # Shiny filenames embed this: delays are only meaningful per-checkpoint.
+    state_sha6 = trace.sha1_of_bytes(state_bytes)[:6]
     master_seed = seed if seed is not None else time.time_ns()
 
     preview_cb = _make_preview_callback(rom, crystal_rom, crystal_state, crystal_macro)
@@ -366,7 +381,7 @@ def run(
     if monitor:
         from multiprocessing import Queue as MPQueue
         from .monitor import MonitorWindow, GifRecorder
-        from .workers import hunt_parallel, WorkerFrame
+        from .workers import hunt_parallel
         from .dv import decode_dvs
         from queue import Empty
         import threading
@@ -379,17 +394,17 @@ def run(
 
         out_dir.mkdir(parents=True, exist_ok=True)
 
-        monitor_win = MonitorWindow(actual_workers)
+        monitor_win = MonitorWindow(actual_workers, generation=cfg.generation)
         gif_recorder = GifRecorder() if record_path is not None else None
 
         hunt_result_holder: list = []
 
         def _run_hunt() -> None:
             def on_shiny(res) -> None:
-                name = pokemon.species_name(res.species)
+                name = pokemon.species_name(res.species, cfg.generation)
                 dvs = decode_dvs(res.dvs_raw[0], res.dvs_raw[1])
-                state_name = f"{name}_{cfg.region}_{res.delay:06d}.state"
-                trace_name = f"{name}_{cfg.region}_{res.delay:06d}.trace.json"
+                state_name = f"{name}_{cfg.region}_{state_sha6}_{res.delay:06d}.state"
+                trace_name = f"{name}_{cfg.region}_{state_sha6}_{res.delay:06d}.trace.json"
                 (out_dir / state_name).write_bytes(res.state_bytes)
                 trace.write(
                     out_dir / trace_name,
@@ -426,6 +441,7 @@ def run(
 
                 stop_after_first=not continue_after_shiny,
                 frame_queue=frame_queue,
+                guard_wram_bank=cfg.generation == 2,
             )
             hunt_result_holder.append(result)
 
@@ -465,10 +481,10 @@ def run(
         except KeyboardInterrupt:
             pass
         finally:
-            if gif_recorder is not None and record_path is not None and gif_recorder._frames:
+            if gif_recorder is not None and record_path is not None and gif_recorder.frame_count:
                 monitor_win.show_message("Saving...")
                 gif_recorder.save(record_path)
-                click.echo(f"recorded {len(gif_recorder._frames)} frames to {record_path}")
+                click.echo(f"recorded {gif_recorder.frame_count} frames to {record_path}")
             monitor_win.close()
 
         return
@@ -527,10 +543,10 @@ def run(
                 updater.push()
 
             def on_shiny(res) -> None:
-                name = pokemon.species_name(res.species)
+                name = pokemon.species_name(res.species, cfg.generation)
                 dvs = decode_dvs(res.dvs_raw[0], res.dvs_raw[1])
-                state_name = f"{name}_{cfg.region}_{res.delay:06d}.state"
-                trace_name = f"{name}_{cfg.region}_{res.delay:06d}.trace.json"
+                state_name = f"{name}_{cfg.region}_{state_sha6}_{res.delay:06d}.state"
+                trace_name = f"{name}_{cfg.region}_{state_sha6}_{res.delay:06d}.trace.json"
                 (out_dir / state_name).write_bytes(res.state_bytes)
                 trace.write(
                     out_dir / trace_name,
@@ -569,6 +585,7 @@ def run(
                 delay_window=delay_window,
 
                 stop_after_first=not continue_after_shiny,
+                guard_wram_bank=cfg.generation == 2,
             )
 
         click.echo(
@@ -590,7 +607,7 @@ def run(
             click.echo(f"\nfound {len(ranked)} shiny delay(s):")
             for i, res in enumerate(ranked):
                 dvs = decode_dvs(res.dvs_raw[0], res.dvs_raw[1])
-                name = pokemon.species_name(res.species)
+                name = pokemon.species_name(res.species, cfg.generation)
                 marker = "  <<< best" if i == 0 else ""
                 click.echo(
                     f"  delay={res.delay:>6,}  {name} (0x{res.species:02X})  "
@@ -684,7 +701,7 @@ def replay(trace_path: Path, rom: Path, macro_path: Path, mode: str) -> None:
     "--rom",
     required=True,
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
-    help="Path to the Game Boy ROM (.gb).",
+    help="Path to the Game Boy ROM (.gb/.gbc).",
 )
 @click.option(
     "--state",
@@ -710,7 +727,106 @@ def resume(rom: Path, state_path: Path) -> None:
     "--rom",
     required=True,
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
-    help="Path to the Game Boy ROM (.gb).",
+    help="Path to the Game Boy ROM (.gb/.gbc).",
+)
+@click.option(
+    "--state",
+    "state_path",
+    required=True,
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="Existing hunt checkpoint (.state).",
+)
+@click.option(
+    "--macro",
+    "macro_path",
+    required=True,
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="Existing event macro (.events.json) recorded from that checkpoint.",
+)
+@click.option(
+    "--out-state",
+    required=True,
+    type=click.Path(dir_okay=False, path_type=Path),
+    help="Where to write the re-parked save-state.",
+)
+@click.option(
+    "--out-macro",
+    required=True,
+    type=click.Path(dir_okay=False, path_type=Path),
+    help="Where to write the rebased event macro (.events.json).",
+)
+@click.option("--game", default=None, help="Force game name; only needed if SHA-1 lookup fails.")
+@click.option("--region", default=None, help="Force region; only needed alongside --game.")
+@click.option(
+    "--mode",
+    type=click.Choice(["starter", "static"]),
+    default="starter",
+    show_default=True,
+    help="Hunt mode: 'starter' reads party DVs, 'static' reads enemy battle DVs.",
+)
+def repark(
+    rom: Path,
+    state_path: Path,
+    macro_path: Path,
+    out_state: Path,
+    out_macro: Path,
+    game: str | None,
+    region: str | None,
+    mode: str,
+) -> None:
+    """Move a checkpoint as close to the DV roll as possible.
+
+    Replays the macro to locate the roll, saves a new state just before the
+    decisive press, and writes a short rebased macro. Verifies that frame
+    jitter still varies the DVs from the new park point. Cuts per-attempt
+    emulation to a handful of frames.
+    """
+    from . import repark as repark_mod
+
+    cfg = _resolve_config(rom, game, region)
+    hunt_macro = macro.load(macro_path)
+    if not isinstance(hunt_macro, macro.EventMacro):
+        raise click.ClickException("repark requires an .events.json macro (record one first)")
+
+    if mode == "static":
+        species_addr, dv_addr = cfg.enemy_species_addr, cfg.enemy_dv_addr
+    else:
+        species_addr, dv_addr = cfg.party_species_addr, cfg.party_dv_addr
+
+    try:
+        result = repark_mod.repark(
+            rom_path=rom,
+            state_bytes=state_path.read_bytes(),
+            macro=hunt_macro,
+            cfg=cfg,
+            species_addr=species_addr,
+            dv_addr=dv_addr,
+            on_progress=lambda msg: click.echo(f"  {msg}"),
+        )
+    except ValueError as e:
+        raise click.ClickException(str(e))
+
+    out_state.parent.mkdir(parents=True, exist_ok=True)
+    out_state.write_bytes(result.state_bytes)
+    out_macro.parent.mkdir(parents=True, exist_ok=True)
+    doc = macro.dump_events(result.macro)
+    doc["from_state"] = str(out_state)
+    out_macro.write_text(json.dumps(doc, indent=1))
+
+    old_frames = result.species_frame
+    new_frames = result.species_frame - result.park_frame
+    click.echo(f"re-parked at frame {result.park_frame} (roll at ~{result.species_frame})")
+    click.echo(f"per-attempt emulation: ~{old_frames} -> ~{new_frames} frames")
+    click.echo(f"wrote {out_state} and {out_macro}")
+    click.echo("Note: the new state is a NEW checkpoint — delays found from the old one do not carry over.")
+
+
+@main.command()
+@click.option(
+    "--rom",
+    required=True,
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="Path to the Game Boy ROM (.gb/.gbc).",
 )
 @click.option(
     "--from-state",
@@ -785,7 +901,7 @@ def record(
     "--rom",
     required=True,
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
-    help="Gen 1 ROM (.gb) that produced the shiny.",
+    help="ROM (.gb/.gbc) that produced the shiny.",
 )
 @click.option(
     "--state",
@@ -833,7 +949,7 @@ def preview(
     out_path: Path | None,
     window: bool,
 ) -> None:
-    """Generate a Crystal screenshot of a shiny found in Gen 1."""
+    """Generate a Crystal screenshot of a found shiny (Gen 1 or Gen 2)."""
     from .preview import generate_preview
 
     crystal_rom = crystal_rom or _CRYSTAL_ROM_DEFAULT
@@ -851,7 +967,7 @@ def preview(
     if window:
         click.echo("Crystal will stay open after the screenshot. Close the PyBoy window to finish.")
     result = generate_preview(
-        gen1_rom=rom,
+        hunt_rom=rom,
         shiny_state=shiny_state,
         crystal_rom=crystal_rom,
         crystal_state=crystal_state,
