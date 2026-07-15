@@ -150,7 +150,7 @@ the DIV value until we find a shiny.
 ## Setup
 
 ```bash
-python -mv venv .venv
+python -m venv .venv
 source .venv/bin/activate # bash/zsh
 source .venv/bin/activate.fish # fish
 ```
