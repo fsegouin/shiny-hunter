@@ -6,13 +6,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Automatic shiny hunter for Pokémon Gen 1 (Red/Blue/Yellow) and Gen 2 (Gold/Silver/Crystal), US and JP. Shininess is a fixed DV (Determinant Value) predicate — in Gen 1 it applies when transferring to Gen 2 via Time Capsule; in Gen 2 it is the game's own native shiny rule, so the same check covers both. Uses emulator save-state reloading with controlled frame jitter to brute-force the 1/8192 shiny chance.
 
-Two parallel implementations:
-- **Python CLI** (`src/shiny_hunter/`) — PyBoy-based, production-quality, full feature set
-- **Web frontend** (`web/`) — Next.js + WasmBoy spike, client-side only, ports core logic to TypeScript
+Single implementation: a **Python CLI** (`src/shiny_hunter/`), PyBoy-based.
+
+A Next.js + WasmBoy browser spike used to live in `web/`. It was removed —
+WasmBoy in the browser is far slower than native PyBoy, and the tool is
+throughput-bound. Recoverable from git history if ever needed.
 
 ## Commands
-
-### Python
 
 ```bash
 pip install -e ".[dev]"        # Install with dev deps
@@ -29,17 +29,6 @@ shiny-hunt repark --rom ROM --state STATE --macro MACRO --out-state S2 --out-mac
 shiny-hunt bootstrap --rom ROM --out STATE                 # Create a checkpoint (--from-state to start from an existing one)
 shiny-hunt record --rom ROM --from-state STATE --out MACRO # Record an event macro
 shiny-hunt preview --rom ROM --state SHINY_STATE           # Render a Crystal shiny preview PNG
-```
-
-### Web
-
-```bash
-cd web
-pnpm install
-pnpm run dev                   # Next.js dev server
-pnpm run build                 # Production build
-pnpm run lint                  # ESLint
-pnpm run typecheck             # TypeScript type check (tsc --noEmit)
 ```
 
 ## Architecture
@@ -66,16 +55,10 @@ Two formats, both with `.run(emu)`:
 
 ### DV Logic
 
-`dv.py` / `web/src/lib/dv.ts`: decode two bytes into 4-bit ATK/DEF/SPD/SPC + derived HP. Shiny predicate: DEF==10, SPD==10, SPC==10, ATK ∈ {2,3,6,7,10,11,14,15}.
-
-### Web Stack
-
-WasmBoy spike verifying browser-side feasibility. Ports of `dv.py`, `games/`, `macro.py`, and state serialization live in `web/src/lib/`. ROM loading supports ZIP extraction via fflate. On-screen gamepad uses responsive-gamepad. Webpack configured with `asyncWebAssembly` for WasmBoy.
+`dv.py`: decode two bytes into 4-bit ATK/DEF/SPD/SPC + derived HP. Shiny predicate: DEF==10, SPD==10, SPC==10, ATK ∈ {2,3,6,7,10,11,14,15}.
 
 ## Key Conventions
 
-- Python/web game configs are currently duplicated — long-term goal is shared JSON
-- `.state` (PyBoy) and `.wbst` (WasmBoy) save formats are not interchangeable
 - Macro `after` durations are sensitive to in-game text speed settings — always verify with `shiny-hunt verify`
 - Gen 1 JP ROM RAM offsets are best-effort from pret/pokered disassembly; Gen 2 addresses (US and JP) are verified — see the provenance notes in `games/gold_jp.py` / `games/crystal_jp.py`
 - Gen 2 JP Gold/Silver: only Rev 1 dumps are registered (Rev 0 WRAM layout unverified); JP Crystal is MBC30 with 64 KB SRAM

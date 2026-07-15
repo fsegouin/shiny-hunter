@@ -1,7 +1,4 @@
-"""Shared constants for the Gen 2 (GSC) game configs.
-
-Mirrors `GEN2_STARTERS` in web/src/lib/games.ts.
-"""
+"""Shared constants for the Gen 2 (GSC) game configs."""
 from __future__ import annotations
 
 # Gen 2 species bytes are National Pokédex numbers.
